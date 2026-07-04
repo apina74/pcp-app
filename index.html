@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0B2265">
+<title>Panel de Control Personal</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+<!-- ===== Login ===== -->
+<div id="loginCapa" style="display:none">
+  <div class="login-caja">
+    <h1>Panel de Control Personal</h1>
+    <div class="sub" style="margin-top:4px">PCP — proyectos y facturación</div>
+    <input id="loginEmail" type="email" placeholder="email" autocomplete="username" value="pina.antonio@gmail.com">
+    <input id="loginPass" type="password" placeholder="contraseña" autocomplete="current-password">
+    <button id="btnLogin" class="azul">Entrar</button>
+    <div id="loginError" class="error" style="margin-top:8px;font-size:11px"></div>
+    <div class="peq">La contraseña está en credenciales.env (CM_APP_PASSWORD).<br>Sin login solo se ve el panel de KPIs.</div>
+    <button id="btnSoloPanel" class="gris" style="margin-top:6px">Seguir sin login (solo panel)</button>
+  </div>
+</div>
+
+<!-- ===== Cabecera ===== -->
+<div class="top">
+  <div class="top-row">
+    <h1>PCP <span style="font-weight:400;color:#888;font-size:12px">Panel de Control Personal · v8</span></h1>
+    <span class="sub">FY oct-25 a sep-26 · <span id="hoy"></span></span>
+    <span class="spacer"></span>
+    <span id="sesionInfo" class="status"></span>
+    <button id="btnSesion" class="gris mini">entrar</button>
+  </div>
+  <nav class="tabs">
+    <button class="tab activa" data-pantalla="panel">Panel</button>
+    <button class="tab" data-pantalla="explorar">Explorar</button>
+    <button class="tab" data-pantalla="alertas">Alertas <span id="badgeAlertas" class="badge" style="display:none"></span></button>
+    <button class="tab" data-pantalla="subir">Subir</button>
+    <button class="tab" data-pantalla="asistente">Asistente</button>
+  </nav>
+</div>
+
+<!-- ===== Pantalla: Panel (KPIs) ===== -->
+<section id="pantalla-panel" class="pantalla activa">
+  <div class="top-row" style="margin-bottom:10px">
+    <button id="refresh" class="azul">Actualizar</button>
+    <span id="status" class="status">cargando…</span>
+  </div>
+
+  <h2 class="section-title">Facturación FY26</h2>
+  <div class="hero">
+    <div class="hero-row">
+      <div class="hero-cell left">
+        <div class="hero-label">Facturación FY26 acumulada</div>
+        <div class="hero-value facturado" id="vFacturado"><span class="skeleton">…</span></div>
+        <div class="hero-sub" id="sFacturado"></div>
+      </div>
+      <div class="hero-cell">
+        <div class="hero-label">Pendiente de ejecutar</div>
+        <div class="hero-value pendiente" id="vPendiente"><span class="skeleton">…</span></div>
+        <div class="hero-sub" id="sPendiente"></div>
+      </div>
+      <div class="hero-cell right">
+        <div class="hero-label">Previsión del ejercicio</div>
+        <div class="hero-value prevision" id="vPrevision"><span class="skeleton">…</span></div>
+        <div class="hero-sub" id="sPrevision"></div>
+      </div>
+    </div>
+    <div class="hero-chart"><canvas id="chartFY26"></canvas></div>
+    <div id="chartFY26Legend" style="text-align:center;font-size:11px;color:#555;margin-top:4px"></div>
+    <div class="breakdown">
+      <div class="bd cartera"><div class="lbl">Cartera</div><div class="val" id="vFacCartera">— €</div><div class="sub2" id="sFacCartera"></div></div>
+      <div class="bd incident"><div class="lbl">Incidental</div><div class="val" id="vFacIncidental">— €</div><div class="sub2" id="sFacIncidental"></div></div>
+      <div class="bd newbiz"><div class="lbl">New business</div><div class="val" id="vFacNewBiz">— €</div><div class="sub2" id="sFacNewBiz"></div></div>
+      <div class="bd recur"><div class="lbl">Recurrente</div><div class="val" id="vFacRecur">— €</div><div class="sub2" id="sFacRecur"></div></div>
+    </div>
+    <div class="bd-carry-grid">
+      <div class="bd carry"><div class="lbl">Carry-forward del ejercicio anterior</div><div class="val" id="vCarryAnt">— €</div><div class="sub2" id="sCarryAnt"></div></div>
+      <div class="bd carry"><div class="lbl">Carry-forward previsto (post-FY26)</div><div class="val" id="vCarryPost">— €</div><div class="sub2" id="sCarryPost"></div></div>
+    </div>
+  </div>
+
+  <h2 class="section-title">Pipeline comercial FY26</h2>
+  <div class="hero">
+    <div class="ventas-row">
+      <div>
+        <div class="hero-label">Ventas FY26 (propuestas aceptadas)</div>
+        <div class="hero-value ventas" id="vVentas"><span class="skeleton">…</span></div>
+        <div class="hero-sub" id="sVentas"></div>
+      </div>
+      <div class="oportu-cell">
+        <div class="hero-label">Oportunidades abiertas</div>
+        <div class="hero-value oportu" id="vOportu">— €</div>
+        <div class="hero-sub" id="sOportu"></div>
+      </div>
+      <div class="perdidas-cell">
+        <div class="hero-label">Propuestas perdidas FY26</div>
+        <div class="hero-value perdidas" id="vPerdidas">— €</div>
+        <div class="hero-sub" id="sPerdidas"></div>
+      </div>
+    </div>
+    <div class="breakdown">
+      <div class="bd cartera"><div class="lbl">Cartera</div><div class="val" id="vCartera">— €</div><div class="sub2" id="sCartera"></div></div>
+      <div class="bd incident"><div class="lbl">Incidental</div><div class="val" id="vIncidental">— €</div><div class="sub2" id="sIncidental"></div></div>
+      <div class="bd newbiz"><div class="lbl">New business</div><div class="val" id="vNewBiz">— €</div><div class="sub2" id="sNewBiz"></div></div>
+      <div class="bd recur"><div class="lbl">Recurrente</div><div class="val" id="vRecur">— €</div><div class="sub2" id="sRecur"></div></div>
+    </div>
+  </div>
+
+  <h2 class="section-title">Cobros y mora</h2>
+  <div class="small-grid">
+    <div class="small ok"><div class="lbl">Cobros FY26</div><div class="val" id="vCobros">— €</div><div class="sub2" id="sCobros"></div></div>
+    <div class="small alert"><div class="lbl">Mora pre-2026 (a reclamar)</div><div class="val" id="vMora">— €</div><div class="sub2" id="sMora"></div></div>
+    <div class="small warn"><div class="lbl">Otras ENVIADA pendientes</div><div class="val" id="vOtras">— €</div><div class="sub2" id="sOtras"></div></div>
+  </div>
+</section>
+
+<!-- ===== Pantalla: Explorar ===== -->
+<section id="pantalla-explorar" class="pantalla">
+  <div class="subtabs">
+    <button class="subtab activa" data-sub="facturas">Facturas</button>
+    <button class="subtab" data-sub="propuestas">Propuestas</button>
+    <button class="subtab" data-sub="hitos">Hitos</button>
+  </div>
+  <div class="filtros">
+    <select id="fEstado"><option value="">— estado —</option></select>
+    <input id="fCliente" type="text" placeholder="cliente (nombre o NIF)" style="width:200px">
+    <input id="fDesde" type="date"> <span class="sub">a</span> <input id="fHasta" type="date">
+    <button id="btnBuscar" class="azul">Buscar</button>
+    <span class="spacer" style="flex:1"></span>
+    <button id="btnCsv" class="gris">Exportar CSV</button>
+    <span id="expStatus" class="status"></span>
+  </div>
+  <div id="expTabla" class="tabla-scroll"></div>
+</section>
+
+<!-- ===== Pantalla: Alertas ===== -->
+<section id="pantalla-alertas" class="pantalla">
+  <div class="top-row" style="margin-bottom:10px">
+    <button id="btnAlertas" class="azul">Actualizar alertas</button>
+    <span id="alStatus" class="status"></span>
+  </div>
+  <div id="alTabla" class="tabla-scroll"></div>
+</section>
+
+<!-- ===== Pantalla: Subir ===== -->
+<section id="pantalla-subir" class="pantalla">
+  <div class="filtros">
+    <label class="sub">Tipo de documento:</label>
+    <select id="subTipo">
+      <option value="facturas">Factura</option>
+      <option value="propuestas">Propuesta</option>
+      <option value="correspondencia">Correspondencia</option>
+    </select>
+  </div>
+  <div id="zonaSubir" class="subir-caja">
+    <p style="font-size:14px;margin:0 0 6px"><strong>Arrastra PDFs aquí</strong> o</p>
+    <input id="inputFicheros" type="file" accept=".pdf,application/pdf" multiple style="display:none">
+    <button id="btnElegir" class="azul">Elegir ficheros</button>
+    <p class="sub" style="margin-top:10px">Van a la bandeja de entrada segura; la ingesta del PC los recoge y procesa<br>(bucket → Dropbox → BD). Nada se publica.</p>
+  </div>
+  <div id="listaSubidas"></div>
+  <div class="top-row" style="margin-top:10px">
+    <button id="btnVerBandeja" class="gris mini">Ver bandeja pendiente</button>
+    <span id="subStatus" class="status"></span>
+  </div>
+  <div id="bandejaLista" style="margin-top:8px"></div>
+</section>
+
+<!-- ===== Pantalla: Asistente ===== -->
+<section id="pantalla-asistente" class="pantalla">
+  <div class="asistente-grid">
+    <div class="mascota-col">
+      <!-- Teo: mascota original de TPS Gestión (personaje propio, no un Minion) -->
+      <svg id="teo" class="reposo" viewBox="0 0 150 170" xmlns="http://www.w3.org/2000/svg" aria-label="Teo, el asistente del PCP">
+        <g class="onda o1"><circle cx="75" cy="80" r="55" fill="none" stroke="#0369a1" stroke-width="2"/></g>
+        <g class="onda o2"><circle cx="75" cy="80" r="55" fill="none" stroke="#7dd3fc" stroke-width="2"/></g>
+        <g class="cuerpo-g">
+          <!-- antena -->
+          <line x1="75" y1="18" x2="75" y2="34" stroke="#b45309" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="75" cy="14" r="6" fill="#f59e0b"/>
+          <!-- cuerpo -->
+          <rect x="25" y="34" width="100" height="112" rx="34" fill="#FFD43B" stroke="#eab308" stroke-width="2.5"/>
+          <!-- cinta de las gafas -->
+          <rect x="25" y="62" width="100" height="9" fill="#374151"/>
+          <!-- gafas (dos lentes) -->
+          <circle cx="55" cy="67" r="17" fill="#e5e7eb" stroke="#374151" stroke-width="4"/>
+          <circle cx="95" cy="67" r="17" fill="#e5e7eb" stroke="#374151" stroke-width="4"/>
+          <circle class="pupila" cx="55" cy="67" r="7" fill="#1f2937"/>
+          <circle class="pupila" cx="95" cy="67" r="7" fill="#1f2937"/>
+          <circle cx="57.5" cy="64.5" r="2.2" fill="#fff"/>
+          <circle cx="97.5" cy="64.5" r="2.2" fill="#fff"/>
+          <!-- párpados (parpadeo) -->
+          <circle class="ojo-tapa" cx="55" cy="67" r="13.5" fill="#FFD43B"/>
+          <circle class="ojo-tapa" cx="95" cy="67" r="13.5" fill="#FFD43B"/>
+          <!-- boca -->
+          <path class="boca-quieta" d="M60 103 Q75 114 90 103" fill="none" stroke="#92400e" stroke-width="3.5" stroke-linecap="round"/>
+          <ellipse class="boca-habla" cx="75" cy="106" rx="12" ry="9" fill="#92400e"/>
+          <!-- acreditación TPS -->
+          <rect x="59" y="124" width="32" height="14" rx="3" fill="#0B2265"/>
+          <text x="75" y="134.5" font-family="Segoe UI, Arial" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">PCP</text>
+        </g>
+        <!-- burbuja de pensar -->
+        <g class="burbuja">
+          <circle cx="121" cy="30" r="13" fill="#fff" stroke="#cbd5e1"/>
+          <circle class="punto p1" cx="113" cy="30" r="2.4" fill="#0369a1"/>
+          <circle class="punto p2" cx="121" cy="30" r="2.4" fill="#0369a1"/>
+          <circle class="punto p3" cx="129" cy="30" r="2.4" fill="#0369a1"/>
+          <circle cx="110" cy="42" r="3.5" fill="#fff" stroke="#cbd5e1"/>
+        </g>
+      </svg>
+      <div class="teo-nombre">Teo · asistente del PCP</div>
+      <label class="voz-toggle" style="justify-content:center;margin-top:6px">
+        <input id="chkVoz" type="checkbox" checked> respuesta por voz
+      </label>
+    </div>
+    <div class="chat">
+      <div id="chatLog" class="chat-log">
+        <div class="msg teo">Hola, soy <strong>Teo</strong> 👋 Pregúntame por tus datos: <em>"facturas previstas el próximo mes"</em>, <em>"facturas enviadas a Atalaya"</em>, <em>"resumen del cliente Globex"</em>, <em>"¿cuánto llevo facturado?"</em>… Puedes escribir o pulsar el micrófono.</div>
+      </div>
+      <div class="chat-input">
+        <input id="chatInput" type="text" placeholder="escribe tu consulta o usa el micrófono…">
+        <button id="btnMic" class="morado" title="hablar">🎤</button>
+        <button id="btnEnviar" class="azul">Enviar</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<script src="./app.js"></script>
+</body>
+</html>
