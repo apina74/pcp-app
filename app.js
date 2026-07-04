@@ -81,9 +81,21 @@ function cerrarSesion() {
 }
 
 // --- Entrar con Google (OAuth de Supabase; requiere proveedor activado en el panel) ---
-function loginGoogle() {
+async function loginGoogle() {
   const destino = location.origin + location.pathname;
-  location.href = `${AUTH}/authorize?provider=google&redirect_to=${encodeURIComponent(destino)}`;
+  const url = `${AUTH}/authorize?provider=google&redirect_to=${encodeURIComponent(destino)}`;
+  // Pre-comprobación: si el proveedor no está activado, avisar en claro (sin sacar al usuario de la app)
+  try {
+    const r = await fetch(url, { redirect: 'manual' });
+    if (r.status === 400) {
+      const d = await r.json().catch(() => ({}));
+      if ((d.msg || '').toLowerCase().includes('not enabled')) {
+        $('loginError').textContent = 'La entrada con Google aún no está activada. Entra con contraseña (o con el desbloqueo del dispositivo, si ya lo activaste).';
+        return;
+      }
+    }
+  } catch { /* red bloqueada: seguimos con la navegación normal */ }
+  location.href = url;
 }
 function capturarOAuthHash() {
   if (!location.hash.includes('access_token=')) return false;
