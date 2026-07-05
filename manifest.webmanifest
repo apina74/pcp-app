@@ -1,13 +1,13 @@
 {
-  "name": "Panel de Control Personal",
-  "short_name": "PCP",
+  "name": "Kira · Panel de Control Personal",
+  "short_name": "Kira",
   "description": "KPIs de facturación, pipeline comercial y cobros del ejercicio FY (oct-sep).",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
-  "background_color": "#f4f6fb",
-  "theme_color": "#0B2265",
+  "background_color": "#07070f",
+  "theme_color": "#07070f",
   "lang": "es",
   "icons": [
     { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },

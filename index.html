@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0B2265">
+<meta name="theme-color" content="#07070f">
 <title>Panel de Control Personal</title>
 <link rel="manifest" href="./manifest.webmanifest">
 <link rel="icon" href="./icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="./icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Orbitron:wght@500;700;900&family=Share+Tech+Mono&display=swap">
 <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
@@ -20,22 +20,24 @@
   <div class="login-caja">
     <h1>Panel de Control Personal</h1>
     <div class="sub" style="margin-top:4px">PCP — proyectos y facturación</div>
-    <input id="loginEmail" type="email" placeholder="email" autocomplete="username" value="pina.antonio@gmail.com">
-    <input id="loginPass" type="password" placeholder="contraseña" autocomplete="current-password">
-    <button id="btnLogin" class="azul">Entrar</button>
+    <div id="formPass">
+      <input id="loginEmail" type="email" placeholder="email" autocomplete="username" value="pina.antonio@gmail.com">
+      <input id="loginPass" type="password" placeholder="contraseña" autocomplete="current-password">
+      <button id="btnLogin" class="azul">Entrar</button>
+    </div>
     <div id="loginError" class="error" style="margin-top:8px;font-size:11px"></div>
-    <div class="peq">La contraseña está en credenciales.env (CM_APP_PASSWORD).<br>Sin login solo se ve el panel de KPIs.</div>
-    <button id="btnSoloPanel" class="gris" style="margin-top:6px">Seguir sin login (solo panel)</button>
+    <div class="peq">Primera vez en este dispositivo: contraseña (credenciales.env, CM_APP_PASSWORD) y activa el desbloqueo.<br>Después entrarás solo con huella / Windows Hello / PIN.</div>
   </div>
 </div>
 
 <!-- ===== Cabecera ===== -->
 <div class="top">
   <div class="top-row">
-    <h1>PCP <span style="font-weight:400;color:#888;font-size:12px">Panel de Control Personal · v8</span></h1>
+    <h1>PCP <span style="font-weight:400;color:#6f7ba6;font-size:12px;text-shadow:none">Panel de Control Personal · v8</span></h1>
     <span class="sub">FY oct-25 a sep-26 · <span id="hoy"></span></span>
     <span class="spacer"></span>
     <span id="sesionInfo" class="status"></span>
+    <button id="btnInstalar" class="verde mini" style="display:none">⬇ Instalar app</button>
     <button id="btnSesion" class="gris mini">entrar</button>
   </div>
   <nav class="tabs">
@@ -75,15 +77,41 @@
     </div>
     <div class="hero-chart"><canvas id="chartFY26"></canvas></div>
     <div id="chartFY26Legend" style="text-align:center;font-size:11px;color:#555;margin-top:4px"></div>
+    <div class="chart-duo">
+      <div class="chart-mini">
+        <div class="chart-cap">Ejecución del ejercicio</div>
+        <div class="chart-box"><canvas id="chartFactEjec"></canvas></div>
+      </div>
+      <div class="chart-mini">
+        <div class="chart-cap">Desglose por tipo de encargo</div>
+        <div class="chart-box"><canvas id="chartFactLineas"></canvas></div>
+      </div>
+    </div>
     <div class="breakdown">
       <div class="bd cartera"><div class="lbl">Cartera</div><div class="val" id="vFacCartera">— €</div><div class="sub2" id="sFacCartera"></div></div>
       <div class="bd incident"><div class="lbl">Incidental</div><div class="val" id="vFacIncidental">— €</div><div class="sub2" id="sFacIncidental"></div></div>
       <div class="bd newbiz"><div class="lbl">New business</div><div class="val" id="vFacNewBiz">— €</div><div class="sub2" id="sFacNewBiz"></div></div>
       <div class="bd recur"><div class="lbl">Recurrente</div><div class="val" id="vFacRecur">— €</div><div class="sub2" id="sFacRecur"></div></div>
     </div>
-    <div class="bd-carry-grid">
-      <div class="bd carry"><div class="lbl">Carry-forward del ejercicio anterior</div><div class="val" id="vCarryAnt">— €</div><div class="sub2" id="sCarryAnt"></div></div>
-      <div class="bd carry"><div class="lbl">Carry-forward previsto (post-FY26)</div><div class="val" id="vCarryPost">— €</div><div class="sub2" id="sCarryPost"></div></div>
+    <!-- Carry-forward como flujo: entra del ejercicio anterior, sale hacia el siguiente -->
+    <div class="carry-flow">
+      <div class="cf-nodo entrada">
+        <div class="cf-lbl">Carry-forward del ejercicio anterior</div>
+        <div class="cf-val in" id="vCarryAnt">— €</div>
+        <div class="cf-sub" id="sCarryAnt"></div>
+      </div>
+      <div class="cf-arrow in" aria-hidden="true"></div>
+      <div class="cf-nodo caja">
+        <div class="cf-lbl">FY26</div>
+        <div class="cf-val fy" id="cfPrev">— €</div>
+        <div class="cf-sub">previsión del ejercicio</div>
+      </div>
+      <div class="cf-arrow out" aria-hidden="true"></div>
+      <div class="cf-nodo salida">
+        <div class="cf-lbl">Carry-forward previsto (post-FY26)</div>
+        <div class="cf-val out" id="vCarryPost">— €</div>
+        <div class="cf-sub" id="sCarryPost"></div>
+      </div>
     </div>
   </div>
 
@@ -106,6 +134,21 @@
         <div class="hero-sub" id="sPerdidas"></div>
       </div>
     </div>
+    <div class="chart-duo">
+      <div class="chart-mini">
+        <div class="chart-cap">Estado del pipeline</div>
+        <div class="chart-box"><canvas id="chartPipeEstado"></canvas></div>
+      </div>
+      <div class="chart-mini">
+        <div class="chart-cap">Ventas por tipo de encargo</div>
+        <div class="chart-box"><canvas id="chartPipeLineas"></canvas></div>
+      </div>
+    </div>
+    <div class="chart-mini" style="margin-top:18px">
+      <div class="chart-cap">Evolutivo mensual — ofertas presentadas vs ganadas</div>
+      <div class="chart-box chart-box-lg"><canvas id="chartComercialEvo"></canvas></div>
+      <div id="chartComercialLegend" style="text-align:center;font-size:11px;margin-top:6px"></div>
+    </div>
     <div class="breakdown">
       <div class="bd cartera"><div class="lbl">Cartera</div><div class="val" id="vCartera">— €</div><div class="sub2" id="sCartera"></div></div>
       <div class="bd incident"><div class="lbl">Incidental</div><div class="val" id="vIncidental">— €</div><div class="sub2" id="sIncidental"></div></div>
@@ -114,12 +157,6 @@
     </div>
   </div>
 
-  <h2 class="section-title">Cobros y mora</h2>
-  <div class="small-grid">
-    <div class="small ok"><div class="lbl">Cobros FY26</div><div class="val" id="vCobros">— €</div><div class="sub2" id="sCobros"></div></div>
-    <div class="small alert"><div class="lbl">Mora pre-2026 (a reclamar)</div><div class="val" id="vMora">— €</div><div class="sub2" id="sMora"></div></div>
-    <div class="small warn"><div class="lbl">Otras ENVIADA pendientes</div><div class="val" id="vOtras">— €</div><div class="sub2" id="sOtras"></div></div>
-  </div>
 </section>
 
 <!-- ===== Pantalla: Explorar ===== -->
@@ -178,52 +215,117 @@
 <section id="pantalla-asistente" class="pantalla">
   <div class="asistente-grid">
     <div class="mascota-col">
-      <!-- Teo: mascota original de TPS Gestión (personaje propio, no un Minion) -->
-      <svg id="teo" class="reposo" viewBox="0 0 150 170" xmlns="http://www.w3.org/2000/svg" aria-label="Teo, el asistente del PCP">
-        <g class="onda o1"><circle cx="75" cy="80" r="55" fill="none" stroke="#0369a1" stroke-width="2"/></g>
-        <g class="onda o2"><circle cx="75" cy="80" r="55" fill="none" stroke="#7dd3fc" stroke-width="2"/></g>
+      <!-- Kira: avatar anime-cyberpunk del PCP (personaje propio, estética inspirada en GitS) -->
+      <svg id="teo" class="reposo" viewBox="0 0 150 170" xmlns="http://www.w3.org/2000/svg" aria-label="Kira, la asistente del PCP">
+        <defs>
+          <linearGradient id="kSkin" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#f8dcc8"/><stop offset="1" stop-color="#edbfa2"/>
+          </linearGradient>
+          <linearGradient id="kSkin2" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#e9bda0"/><stop offset="1" stop-color="#d9a184"/>
+          </linearGradient>
+          <linearGradient id="kHair" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#8b5cf6"/><stop offset=".55" stop-color="#5b21b6"/><stop offset="1" stop-color="#2a0e52"/>
+          </linearGradient>
+          <linearGradient id="kHairB" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#4c1d95"/><stop offset="1" stop-color="#180733"/>
+          </linearGradient>
+          <radialGradient id="kIris" cx=".5" cy=".42" r=".6">
+            <stop offset="0" stop-color="#d9fdff"/><stop offset=".35" stop-color="#27e6ff"/>
+            <stop offset=".75" stop-color="#0891b2"/><stop offset="1" stop-color="#063b4f"/>
+          </radialGradient>
+          <linearGradient id="kJacket" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#1a2144"/><stop offset="1" stop-color="#0a0d20"/>
+          </linearGradient>
+        </defs>
+        <g class="onda o1"><circle cx="75" cy="80" r="55" fill="none" stroke="#00f0ff" stroke-width="2"/></g>
+        <g class="onda o2"><circle cx="75" cy="80" r="55" fill="none" stroke="#ff2a6d" stroke-width="2"/></g>
         <g class="cuerpo-g">
-          <!-- antena -->
-          <line x1="75" y1="18" x2="75" y2="34" stroke="#b45309" stroke-width="3" stroke-linecap="round"/>
-          <circle cx="75" cy="14" r="6" fill="#f59e0b"/>
-          <!-- cuerpo -->
-          <rect x="25" y="34" width="100" height="112" rx="34" fill="#FFD43B" stroke="#eab308" stroke-width="2.5"/>
-          <!-- cinta de las gafas -->
-          <rect x="25" y="62" width="100" height="9" fill="#374151"/>
-          <!-- gafas (dos lentes) -->
-          <circle cx="55" cy="67" r="17" fill="#e5e7eb" stroke="#374151" stroke-width="4"/>
-          <circle cx="95" cy="67" r="17" fill="#e5e7eb" stroke="#374151" stroke-width="4"/>
-          <circle class="pupila" cx="55" cy="67" r="7" fill="#1f2937"/>
-          <circle class="pupila" cx="95" cy="67" r="7" fill="#1f2937"/>
-          <circle cx="57.5" cy="64.5" r="2.2" fill="#fff"/>
-          <circle cx="97.5" cy="64.5" r="2.2" fill="#fff"/>
+          <!-- melena trasera -->
+          <path d="M36 70 Q32 28 75 25 Q118 28 114 70 L116 106 Q116 124 102 129 L48 129 Q34 124 34 106 Z" fill="url(#kHairB)"/>
+          <path d="M40 66 Q38 96 44 116" stroke="#6d28d9" stroke-width="2" fill="none" opacity=".55" stroke-linecap="round"/>
+          <path d="M110 66 Q112 96 106 116" stroke="#6d28d9" stroke-width="2" fill="none" opacity=".55" stroke-linecap="round"/>
+          <!-- cuello -->
+          <rect x="68" y="100" width="14" height="20" fill="url(#kSkin2)"/>
+          <path d="M68 102 q7 7 14 0 l0 7 q-7 5 -14 0 Z" fill="#cf9678" opacity=".55"/>
+          <!-- gargantilla ciber -->
+          <rect x="65" y="116" width="20" height="4.5" rx="2.2" fill="#0a0c1c" stroke="#00f0ff" stroke-width=".9"/>
+          <circle cx="75" cy="118.2" r="1.1" fill="#00f0ff"/>
+          <!-- chaqueta con cuello alto -->
+          <path d="M28 150 Q32 126 54 120 L68 116 L75 128 L82 116 L96 120 Q118 126 122 150 Z" fill="url(#kJacket)" stroke="#232b52" stroke-width="1.2"/>
+          <path d="M54 120 L68 116 L75 128 L82 116 L96 120" fill="none" stroke="#ff2a6d" stroke-width="1.8"/>
+          <path d="M56 121 L64 113 L69 123 Z" fill="#1b2246"/>
+          <path d="M94 121 L86 113 L81 123 Z" fill="#1b2246"/>
+          <path d="M33 144 L47 144" stroke="#00f0ff" stroke-width="1.4" opacity=".8"/>
+          <path d="M103 144 L117 144" stroke="#00f0ff" stroke-width="1.4" opacity=".5"/>
+          <!-- puertos ciber del cuello -->
+          <circle cx="63" cy="110" r="1.7" fill="#052e38"/><circle cx="63" cy="110" r="1" fill="#00f0ff"/>
+          <circle cx="87" cy="110" r="1.7" fill="#052e38"/><circle cx="87" cy="110" r="1" fill="#00f0ff"/>
+          <!-- cara (óvalo anime con barbilla fina) -->
+          <path d="M54 56 Q51 82 60 94 Q67 104 75 105 Q83 104 90 94 Q99 82 96 56 Q93 37 75 35 Q57 37 54 56 Z" fill="url(#kSkin)"/>
+          <path d="M60 94 Q67 103 75 104 Q83 103 90 94 Q84 100 75 100 Q66 100 60 94 Z" fill="#d9a184" opacity=".35"/>
+          <!-- rubor sutil -->
+          <ellipse cx="61" cy="85" rx="4.5" ry="2.2" fill="#ff7d9c" opacity=".16"/>
+          <ellipse cx="89" cy="85" rx="4.5" ry="2.2" fill="#ff7d9c" opacity=".16"/>
+          <!-- ojos anime: pestaña superior, esclerótica, iris degradado, brillos -->
+          <path d="M56 70.5 Q62 65.5 71 69.5" fill="none" stroke="#1a0b2e" stroke-width="2.6" stroke-linecap="round"/>
+          <path d="M79 69.5 Q88 65.5 94 70.5" fill="none" stroke="#1a0b2e" stroke-width="2.6" stroke-linecap="round"/>
+          <path d="M57.5 71 Q63.5 68 70 71 Q70 78.5 63.8 79 Q58.5 78.5 57.5 71 Z" fill="#fdfdfd"/>
+          <path d="M80 71 Q86.5 68 92.5 71 Q91.5 78.5 86.2 79 Q80 78.5 80 71 Z" fill="#fdfdfd"/>
+          <circle class="pupila" cx="63.8" cy="74" r="4.3" fill="url(#kIris)"/>
+          <circle class="pupila" cx="86.2" cy="74" r="4.3" fill="url(#kIris)"/>
+          <circle cx="65.4" cy="72" r="1.5" fill="#fff"/>
+          <circle cx="87.8" cy="72" r="1.5" fill="#fff"/>
+          <circle cx="62.2" cy="76.2" r=".8" fill="#aefcff" opacity=".85"/>
+          <circle cx="84.6" cy="76.2" r=".8" fill="#aefcff" opacity=".85"/>
+          <path d="M58.5 79.5 Q64 81.2 69.5 79.5" fill="none" stroke="#c98d6e" stroke-width="1" opacity=".7"/>
+          <path d="M80.5 79.5 Q86 81.2 91.5 79.5" fill="none" stroke="#c98d6e" stroke-width="1" opacity=".7"/>
           <!-- párpados (parpadeo) -->
-          <circle class="ojo-tapa" cx="55" cy="67" r="13.5" fill="#FFD43B"/>
-          <circle class="ojo-tapa" cx="95" cy="67" r="13.5" fill="#FFD43B"/>
-          <!-- boca -->
-          <path class="boca-quieta" d="M60 103 Q75 114 90 103" fill="none" stroke="#92400e" stroke-width="3.5" stroke-linecap="round"/>
-          <ellipse class="boca-habla" cx="75" cy="106" rx="12" ry="9" fill="#92400e"/>
-          <!-- acreditación TPS -->
-          <rect x="59" y="124" width="32" height="14" rx="3" fill="#0B2265"/>
-          <text x="75" y="134.5" font-family="Segoe UI, Arial" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">PCP</text>
+          <path class="ojo-tapa" d="M56 69 Q63.5 66 71 69 L70.5 79 Q63.8 81 58 79 Z" fill="url(#kSkin)"/>
+          <path class="ojo-tapa" d="M79 69 Q86.5 66 94 69 L92 79 Q86.2 81 79.5 79 Z" fill="url(#kSkin)"/>
+          <!-- cejas finas -->
+          <path d="M56.5 64 Q63.5 61 70.5 63.5" stroke="#3b1470" stroke-width="1.7" fill="none" stroke-linecap="round"/>
+          <path d="M79.5 63.5 Q86.5 61 93.5 64" stroke="#3b1470" stroke-width="1.7" fill="none" stroke-linecap="round"/>
+          <!-- nariz mínima -->
+          <path d="M74.6 85.5 q.6 2 1.6 2.6" fill="none" stroke="#cf9678" stroke-width="1.2" stroke-linecap="round"/>
+          <!-- boca pequeña -->
+          <path class="boca-quieta" d="M69.5 93 Q75 96.3 80.5 93" fill="none" stroke="#c2185b" stroke-width="2" stroke-linecap="round"/>
+          <ellipse class="boca-habla" cx="75" cy="94" rx="5.2" ry="3.8" fill="#7a1238"/>
+          <!-- mechones laterales (delante de la cara) -->
+          <path d="M50 50 Q45 76 49 100 Q51 110 58 113 L57 96 Q53 74 56 52 Z" fill="url(#kHair)"/>
+          <path d="M100 50 Q105 76 101 100 Q99 110 92 113 L93 96 Q97 74 94 52 Z" fill="url(#kHair)"/>
+          <!-- flequillo recto GitS -->
+          <path d="M51 62 Q47 33 75 30 Q103 33 99 62 L95.5 52 Q95 59 90.5 62.5 L88 50 Q85 58 80.5 61.5 L77.5 48 Q74 57 69.5 61.5 L66.5 49 Q64 58 59.5 62.5 L57 51 Q55.5 58 51 62 Z" fill="url(#kHair)"/>
+          <path d="M57 36 Q66 31 75 30.5" stroke="#c4b5fd" stroke-width="1.5" fill="none" opacity=".7" stroke-linecap="round"/>
+          <path d="M80 31 Q92 33 97 44" stroke="#00f0ff" stroke-width="1.4" fill="none" opacity=".55" stroke-linecap="round"/>
+          <path d="M52 56 Q50 44 57 37" stroke="#00f0ff" stroke-width="1.2" fill="none" opacity=".4" stroke-linecap="round"/>
+          <!-- implante de la sien -->
+          <polyline points="96.5 68 100.5 72.5 96.5 80" fill="none" stroke="#00f0ff" stroke-width="1.5" opacity=".9"/>
+          <circle cx="96.5" cy="83" r="1.5" fill="#00f0ff"/>
+          <!-- auricular -->
+          <rect x="44.5" y="70" width="5" height="13" rx="2.5" fill="#141a35" stroke="#00f0ff" stroke-width=".9"/>
+          <line x1="47" y1="73" x2="47" y2="80" stroke="#00f0ff" stroke-width=".8" opacity=".8"/>
+          <!-- acreditación PCP -->
+          <rect x="63" y="137" width="24" height="10.5" rx="2" fill="#0a0c1c" stroke="#00f0ff" stroke-width=".9"/>
+          <text x="75" y="145" font-family="Segoe UI, Arial" font-size="7.5" font-weight="700" fill="#00f0ff" text-anchor="middle">PCP</text>
         </g>
         <!-- burbuja de pensar -->
         <g class="burbuja">
-          <circle cx="121" cy="30" r="13" fill="#fff" stroke="#cbd5e1"/>
-          <circle class="punto p1" cx="113" cy="30" r="2.4" fill="#0369a1"/>
-          <circle class="punto p2" cx="121" cy="30" r="2.4" fill="#0369a1"/>
-          <circle class="punto p3" cx="129" cy="30" r="2.4" fill="#0369a1"/>
-          <circle cx="110" cy="42" r="3.5" fill="#fff" stroke="#cbd5e1"/>
+          <circle cx="121" cy="30" r="13" fill="#0c0e1e" stroke="#1c2342"/>
+          <circle class="punto p1" cx="113" cy="30" r="2.4" fill="#00f0ff"/>
+          <circle class="punto p2" cx="121" cy="30" r="2.4" fill="#00f0ff"/>
+          <circle class="punto p3" cx="129" cy="30" r="2.4" fill="#00f0ff"/>
+          <circle cx="110" cy="42" r="3.5" fill="#0c0e1e" stroke="#1c2342"/>
         </g>
       </svg>
-      <div class="teo-nombre">Teo · asistente del PCP</div>
+      <div class="teo-nombre">Kira · asistente del PCP</div>
       <label class="voz-toggle" style="justify-content:center;margin-top:6px">
         <input id="chkVoz" type="checkbox" checked> respuesta por voz
       </label>
     </div>
     <div class="chat">
       <div id="chatLog" class="chat-log">
-        <div class="msg teo">Hola, soy <strong>Teo</strong> 👋 Pregúntame por tus datos: <em>"facturas previstas el próximo mes"</em>, <em>"facturas enviadas a Atalaya"</em>, <em>"resumen del cliente Globex"</em>, <em>"¿cuánto llevo facturado?"</em>… Puedes escribir o pulsar el micrófono.</div>
+        <div class="msg teo">Hola, soy <strong>Kira</strong> ⚡ Pregúntame por tus datos: <em>"facturas previstas el próximo mes"</em>, <em>"facturas enviadas a Atalaya"</em>, <em>"resumen del cliente Globex"</em>, <em>"¿cuánto llevo facturado?"</em>… Puedes escribir o pulsar el micrófono.</div>
       </div>
       <div class="chat-input">
         <input id="chatInput" type="text" placeholder="escribe tu consulta o usa el micrófono…">

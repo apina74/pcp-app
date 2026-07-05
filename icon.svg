@@ -1,9 +1,56 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" rx="96" fill="#0369a1"/>
-  <rect x="104" y="288" width="56" height="120" rx="10" fill="#ffffff" opacity="0.95"/>
-  <rect x="192" y="232" width="56" height="176" rx="10" fill="#ffffff" opacity="0.95"/>
-  <rect x="280" y="176" width="56" height="232" rx="10" fill="#ffffff" opacity="0.95"/>
-  <polyline points="132,300 220,244 308,188 384,140" fill="none" stroke="#7dd3fc" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="384" cy="140" r="18" fill="#7dd3fc"/>
-  <text x="256" y="468" font-family="Segoe UI, Arial, sans-serif" font-size="72" font-weight="700" fill="#ffffff" text-anchor="middle">PCP</text>
+  <defs>
+    <linearGradient id="iSkin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f8dcc8"/><stop offset="1" stop-color="#edbfa2"/>
+    </linearGradient>
+    <linearGradient id="iHair" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8b5cf6"/><stop offset=".55" stop-color="#5b21b6"/><stop offset="1" stop-color="#2a0e52"/>
+    </linearGradient>
+    <linearGradient id="iHairB" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4c1d95"/><stop offset="1" stop-color="#180733"/>
+    </linearGradient>
+    <radialGradient id="iIris" cx=".5" cy=".42" r=".6">
+      <stop offset="0" stop-color="#d9fdff"/><stop offset=".35" stop-color="#27e6ff"/>
+      <stop offset=".75" stop-color="#0891b2"/><stop offset="1" stop-color="#063b4f"/>
+    </radialGradient>
+    <radialGradient id="iGlow" cx=".5" cy=".45" r=".55">
+      <stop offset="0" stop-color="#00f0ff" stop-opacity=".22"/><stop offset="1" stop-color="#00f0ff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="iJacket" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a2144"/><stop offset="1" stop-color="#0a0d20"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="#0a0c1e"/>
+  <rect width="512" height="512" fill="url(#iGlow)"/>
+  <circle cx="256" cy="250" r="196" fill="none" stroke="#00f0ff" stroke-width="7" opacity=".55"/>
+  <circle cx="256" cy="250" r="196" fill="none" stroke="#ff2a6d" stroke-width="7" opacity=".5"
+          stroke-dasharray="308 924" stroke-dashoffset="-154" stroke-linecap="round"/>
+  <g transform="translate(256,258) scale(3.9) translate(-75,-78)">
+    <path d="M36 70 Q32 28 75 25 Q118 28 114 70 L116 106 Q116 124 102 129 L48 129 Q34 124 34 106 Z" fill="url(#iHairB)"/>
+    <rect x="68" y="100" width="14" height="20" fill="#d9a184"/>
+    <rect x="65" y="116" width="20" height="4.5" rx="2.2" fill="#0a0c1c" stroke="#00f0ff" stroke-width=".9"/>
+    <circle cx="75" cy="118.2" r="1.1" fill="#00f0ff"/>
+    <path d="M28 150 Q32 126 54 120 L68 116 L75 128 L82 116 L96 120 Q118 126 122 150 Z" fill="url(#iJacket)"/>
+    <path d="M54 120 L68 116 L75 128 L82 116 L96 120" fill="none" stroke="#ff2a6d" stroke-width="1.8"/>
+    <path d="M54 56 Q51 82 60 94 Q67 104 75 105 Q83 104 90 94 Q99 82 96 56 Q93 37 75 35 Q57 37 54 56 Z" fill="url(#iSkin)"/>
+    <path d="M56 70.5 Q62 65.5 71 69.5" fill="none" stroke="#1a0b2e" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M79 69.5 Q88 65.5 94 70.5" fill="none" stroke="#1a0b2e" stroke-width="2.6" stroke-linecap="round"/>
+    <path d="M57.5 71 Q63.5 68 70 71 Q70 78.5 63.8 79 Q58.5 78.5 57.5 71 Z" fill="#fdfdfd"/>
+    <path d="M80 71 Q86.5 68 92.5 71 Q91.5 78.5 86.2 79 Q80 78.5 80 71 Z" fill="#fdfdfd"/>
+    <circle cx="63.8" cy="74" r="4.3" fill="url(#iIris)"/>
+    <circle cx="86.2" cy="74" r="4.3" fill="url(#iIris)"/>
+    <circle cx="65.4" cy="72" r="1.5" fill="#fff"/>
+    <circle cx="87.8" cy="72" r="1.5" fill="#fff"/>
+    <path d="M56.5 64 Q63.5 61 70.5 63.5" stroke="#3b1470" stroke-width="1.7" fill="none" stroke-linecap="round"/>
+    <path d="M79.5 63.5 Q86.5 61 93.5 64" stroke="#3b1470" stroke-width="1.7" fill="none" stroke-linecap="round"/>
+    <path d="M74.6 85.5 q.6 2 1.6 2.6" fill="none" stroke="#cf9678" stroke-width="1.2" stroke-linecap="round"/>
+    <path d="M69.5 93 Q75 96.3 80.5 93" fill="none" stroke="#c2185b" stroke-width="2" stroke-linecap="round"/>
+    <path d="M50 50 Q45 76 49 100 Q51 110 58 113 L57 96 Q53 74 56 52 Z" fill="url(#iHair)"/>
+    <path d="M100 50 Q105 76 101 100 Q99 110 92 113 L93 96 Q97 74 94 52 Z" fill="url(#iHair)"/>
+    <path d="M51 62 Q47 33 75 30 Q103 33 99 62 L95.5 52 Q95 59 90.5 62.5 L88 50 Q85 58 80.5 61.5 L77.5 48 Q74 57 69.5 61.5 L66.5 49 Q64 58 59.5 62.5 L57 51 Q55.5 58 51 62 Z" fill="url(#iHair)"/>
+    <path d="M57 36 Q66 31 75 30.5" stroke="#c4b5fd" stroke-width="1.5" fill="none" opacity=".7" stroke-linecap="round"/>
+    <path d="M80 31 Q92 33 97 44" stroke="#00f0ff" stroke-width="1.4" fill="none" opacity=".55" stroke-linecap="round"/>
+    <polyline points="96.5 68 100.5 72.5 96.5 80" fill="none" stroke="#00f0ff" stroke-width="1.5" opacity=".9"/>
+    <circle cx="96.5" cy="83" r="1.5" fill="#00f0ff"/>
+  </g>
 </svg>

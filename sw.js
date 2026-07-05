@@ -1,6 +1,6 @@
 // Service worker mínimo: cachea el armazón estático para que la app abra offline.
 // Los datos (vistas v_cm_* y Q&A) NUNCA se cachean: siempre se piden frescos a la red.
-const CACHE = 'pcp-v10';
+const CACHE = 'pcp-v17';
 const ASSETS = [
   './index.html',
   './styles.css',

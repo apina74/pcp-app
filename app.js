@@ -16,6 +16,8 @@ const BUCKET_INBOX = 'tps-ingesta-inbox';
 const $  = (id) => document.getElementById(id);
 const fmt0 = (n) => (Number(n)||0).toLocaleString('es-ES', { maximumFractionDigits: 0 });
 const fmt2 = (n) => (Number(n)||0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const MESES_ES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const mesLabel = (m) => { const [a, mm] = String(m).split('-'); return mm ? `${MESES_ES[+mm-1]} '${a.slice(2)}` : m; };
 $('hoy').textContent = new Date().toISOString().slice(0,10);
 
 // ============================================================
@@ -80,35 +82,8 @@ function cerrarSesion() {
   mostrarLogin();
 }
 
-// --- Entrar con Google (OAuth de Supabase; requiere proveedor activado en el panel) ---
-async function loginGoogle() {
-  const destino = location.origin + location.pathname;
-  const url = `${AUTH}/authorize?provider=google&redirect_to=${encodeURIComponent(destino)}`;
-  // Pre-comprobación: si el proveedor no está activado, avisar en claro (sin sacar al usuario de la app)
-  try {
-    const r = await fetch(url, { redirect: 'manual' });
-    if (r.status === 400) {
-      const d = await r.json().catch(() => ({}));
-      if ((d.msg || '').toLowerCase().includes('not enabled')) {
-        $('loginError').textContent = 'La entrada con Google aún no está activada. Entra con contraseña (o con el desbloqueo del dispositivo, si ya lo activaste).';
-        return;
-      }
-    }
-  } catch { /* red bloqueada: seguimos con la navegación normal */ }
-  location.href = url;
-}
-function capturarOAuthHash() {
-  if (!location.hash.includes('access_token=')) return false;
-  const p = new URLSearchParams(location.hash.slice(1));
-  if (p.get('access_token')) {
-    ses = { access_token: p.get('access_token'), refresh_token: p.get('refresh_token'),
-            expires_at: Math.floor(Date.now()/1000) + parseInt(p.get('expires_in')||'3600',10) };
-    persistirSesion();
-    history.replaceState(null, '', location.pathname);
-    return true;
-  }
-  return false;
-}
+// (Google/OAuth retirado 2026-07-05: un solo sistema de acceso — contraseña la primera
+//  vez y desbloqueo del dispositivo (huella / Windows Hello / PIN) en adelante.)
 
 // ============================================================
 // DESBLOQUEO DEL DISPOSITIVO (WebAuthn: Windows Hello / huella)
@@ -153,7 +128,7 @@ async function bioActivar() {
     bioKey = await claveDesdePrf(out);
     await bioGuardarCifrado(ses.refresh_token);
     localStorage.removeItem(LS_SES);
-    alert('Desbloqueo del dispositivo activado: la sesión queda cifrada y se abre con Windows Hello / huella.');
+    alert('Desbloqueo del dispositivo activado: la sesión queda cifrada y se abre con huella / Windows Hello / PIN.');
   } else {
     localStorage.setItem(LS_BIO_DATA, JSON.stringify({ plano: ses.refresh_token }));
     localStorage.removeItem(LS_SES);
@@ -189,6 +164,7 @@ async function bioDesbloquear() {
     } else { throw new Error('no hay sesión guardada'); }
     await refrescar(refresh);
     ocultarLogin(); refrescarSesionUI();
+    cargarPanel();
   } catch (e) {
     $('loginError').textContent = 'No se pudo desbloquear: ' + e.message;
   }
@@ -215,7 +191,11 @@ const rpc = (fn, params) => fetchDetalle(`/rpc/${fn}`, { method: 'POST', body: J
 // ============================================================
 function mostrarLogin() {
   $('loginCapa').style.display = 'flex';
-  $('btnBioLogin').style.display = bioActivada() ? 'block' : 'none';
+  const bio = bioActivada();
+  // Un solo sistema: con desbloqueo activado, la contraseña queda escondida como respaldo.
+  $('btnBioLogin').style.display = bio ? 'block' : 'none';
+  $('formPass').style.display = bio ? 'none' : 'block';
+  $('btnUsarPass').style.display = bio ? 'inline-block' : 'none';
 }
 function ocultarLogin() { $('loginCapa').style.display = 'none'; }
 
@@ -241,8 +221,8 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   document.querySelectorAll('.pantalla').forEach(x => x.classList.remove('activa'));
   t.classList.add('activa');
   $('pantalla-' + t.dataset.pantalla).classList.add('activa');
-  const necesitaSesion = ['explorar','alertas','subir'].includes(t.dataset.pantalla);
-  if (necesitaSesion && !ses) mostrarLogin();
+  // Toda la app queda tras el login (decisión 2026-07-05): cualquier pestaña exige sesión.
+  if (!ses) mostrarLogin();
   if (t.dataset.pantalla === 'alertas' && ses) cargarAlertas();
 }));
 
@@ -262,6 +242,7 @@ async function paso(view, render, extra) {
 
 async function cargarPanel() {
   const st = $('status'); $('refresh').disabled = true; st.textContent = 'cargando KPIs…'; st.className = 'status';
+  const fact = {};   // datos para los gráficos del desglose de facturación
   const r1 = paso('v_cm_hero', (rows) => { const r = rows[0]; if (!r) return;
     $('vFacturado').textContent = fmt0(r.facturado) + ' €';
     $('sFacturado').textContent = `${r.n_facturado||0} facturas reales + placeholders ya emitidos`;
@@ -269,12 +250,15 @@ async function cargarPanel() {
     $('sPendiente').textContent = `${r.n_pendiente||0} placeholders y hitos hasta 30-sep`;
     $('vPrevision').textContent = fmt0((+r.facturado||0)+(+r.pendiente||0)) + ' €';
     $('sPrevision').textContent = `${(r.n_facturado||0)+(r.n_pendiente||0)} conceptos`;
-    $('vCarryAnt').textContent = fmt0(r.carry_ant) + ' €';
+    $('cfPrev').textContent = fmt0((+r.facturado||0)+(+r.pendiente||0)) + ' €';
+    $('vCarryAnt').textContent = '+' + fmt0(r.carry_ant) + ' €';
     $('sCarryAnt').textContent = `${r.n_carry_ant||0} hitos FY26 de propuestas pre-FY26`;
-    $('vCarryPost').textContent = fmt0(r.carry_post) + ' €';
+    $('vCarryPost').textContent = '−' + fmt0(r.carry_post) + ' €';
     $('sCarryPost').textContent = `${r.n_carry_post||0} hitos posteriores al cierre FY26`;
+    fact.facturado = +r.facturado||0; fact.pendiente = +r.pendiente||0;
   });
   const r2 = paso('v_cm_serie_mensual', (rows) => pintarChart(rows||[]), '&order=mes.asc');
+  const pipe = {};   // datos para los gráficos de actividad comercial
   const r3 = paso('v_cm_ventas', (rows) => { const r = rows[0]; if (!r) return;
     const tot = (+r.ventas||0)+(+r.perdidas||0);
     const pct = (n) => tot>0 ? ((n/tot)*100).toFixed(1).replace('.',',')+'%' : '—';
@@ -282,10 +266,12 @@ async function cargarPanel() {
     $('sVentas').textContent = `${r.n_ventas||0} propuestas aceptadas en FY26`;
     $('vPerdidas').innerHTML = fmt0(r.perdidas) + ' € <span class="pct">' + pct(+r.perdidas||0) + '</span>';
     $('sPerdidas').textContent = `${r.n_perdidas||0} propuestas rechazadas FY26`;
+    pipe.ganadas = +r.ventas||0; pipe.perdidas = +r.perdidas||0;
   });
   const r4 = paso('v_cm_oportunidades', (rows) => { const r = rows[0]; if (!r) return;
     $('vOportu').textContent = fmt0((+r.suma_enviadas||0)+(+r.suma_oportu||0)) + ' €';
     $('sOportu').textContent = `${(r.n_enviadas||0)+(r.n_oportu||0)} propuestas — ${r.n_enviadas||0} enviadas + ${r.n_oportu||0} leads`;
+    pipe.abiertas = (+r.suma_enviadas||0)+(+r.suma_oportu||0);
   });
   const r5 = paso('v_cm_desglose_ventas', (rows) => { const r = rows[0]; if (!r) return;
     ['Cartera:cartera','Incidental:incidental','NewBiz:new_biz','Recur:recurrente'].forEach(par => {
@@ -293,53 +279,161 @@ async function cargarPanel() {
       $('v'+id).textContent = fmt0(r[k]) + ' €';
       $('s'+id).textContent = `${r['n_'+k]||0} propuestas`;
     });
+    pipe.lineas = { cartera:+r.cartera||0, incidental:+r.incidental||0, new_biz:+r.new_biz||0, recurrente:+r.recurrente||0 };
   });
-  const r6 = paso('v_cm_cobros', (rows) => { const r = rows[0]; if (!r) return;
-    $('vCobros').textContent = fmt0(r.suma) + ' €'; $('sCobros').textContent = `${r.n||0} facturas cobradas en FY26`; });
-  const r7 = paso('v_cm_mora', (rows) => { const r = rows[0]; if (!r) return;
-    $('vMora').textContent = fmt2(r.total_iva) + ' €'; $('sMora').textContent = `${r.n||0} facturas · base ${fmt0(r.base)} € + IVA`; });
-  const r8 = paso('v_cm_otras_enviadas', (rows) => { const r = rows[0]; if (!r) return;
-    $('vOtras').textContent = fmt0(r.suma_total) + ' €'; $('sOtras').textContent = `${r.n_total||0} facturas del periodo`; });
-  const r9 = paso('v_cm_desglose_prevision', (rows) => { const r = rows[0]; if (!r) return;
+  // Cobros y mora retirados del dashboard (2026-07-05): datos no fiables.
+  const r6 = paso('v_cm_desglose_prevision', (rows) => { const r = rows[0]; if (!r) return;
     ['FacCartera:cartera','FacIncidental:incidental','FacNewBiz:new_biz','FacRecur:recurrente'].forEach(par => {
       const [id, k] = par.split(':');
       $('v'+id).textContent = fmt0(r[k]) + ' €';
       $('s'+id).textContent = `${r['n_'+k]||0} conceptos (previsión)`;
     });
+    fact.lineas = { cartera:+r.cartera||0, incidental:+r.incidental||0, new_biz:+r.new_biz||0, recurrente:+r.recurrente||0 };
   });
-  const oks = (await Promise.all([r1,r2,r3,r4,r5,r6,r7,r8,r9])).filter(Boolean).length;
-  st.textContent = oks === 9 ? `actualizado ${new Date().toLocaleTimeString('es-ES')} (9/9)` : `parcial ${oks}/9`;
-  st.className = oks === 9 ? 'status' : 'status error';
+  const r7 = paso('v_cm_serie_comercial', (rows) => pintarChartComercial(rows||[]), '&order=mes.asc');
+  const oks = (await Promise.all([r1,r2,r3,r4,r5,r6,r7])).filter(Boolean).length;
+  pintarChartsPipeline(pipe);
+  pintarChartsFacturacion(fact);
+  st.textContent = oks === 7 ? `actualizado ${new Date().toLocaleTimeString('es-ES')} (7/7)` : `parcial ${oks}/7`;
+  st.className = oks === 7 ? 'status' : 'status error';
   $('refresh').disabled = false;
 }
 
-function pintarChart(rows) {
-  const labels = rows.map(r => r.mes);
-  const fac = rows.map(r => +r.facturado||0), pdt = rows.map(r => +r.pendiente||0), ven = rows.map(r => +r.ventas||0);
-  const linea = rows.map((_,i) => fac[i] > 0 ? fac[i] : (pdt[i] > 0 ? pdt[i] : null));
-  let ultimo = -1; for (let i = fac.length-1; i >= 0; i--) if (fac[i] > 0) { ultimo = i; break; }
-  if (chartFacObj) chartFacObj.destroy();
-  chartFacObj = new Chart($('chartFY26'), {
+let chartComercialObj = null;
+function pintarChartComercial(rows) {
+  const labels = rows.map(r => mesLabel(r.mes));
+  const pres = rows.map(r => +r.presentadas||0), gan = rows.map(r => +r.ganadas||0);
+  const nPres = rows.map(r => +r.n_presentadas||0), nGan = rows.map(r => +r.n_ganadas||0);
+  Chart.defaults.color = '#6f7ba6';
+  Chart.defaults.borderColor = 'rgba(0,240,255,0.08)';
+  if (chartComercialObj) chartComercialObj.destroy();
+  chartComercialObj = new Chart($('chartComercialEvo'), {
     type: 'bar',
     data: { labels, datasets: [
-      { type:'bar', label:'Ventas', data: ven.map(v => v>0?v:null), backgroundColor:'rgba(30,64,175,0.55)',
-        borderColor:'#1e40af', borderWidth:1, borderRadius:3, categoryPercentage:0.6, barPercentage:0.85, order:2 },
-      { type:'line', label:'Facturación', data: linea, borderWidth:2, tension:0.3, fill:false, pointRadius:4, spanGaps:true,
-        segment: { borderColor: c => c.p1DataIndex > ultimo ? '#b45309' : '#047857',
-                   borderDash:  c => c.p1DataIndex > ultimo ? [5,4] : [] },
-        pointBackgroundColor: c => c.dataIndex > ultimo ? '#b45309' : '#047857',
-        pointBorderColor:     c => c.dataIndex > ultimo ? '#b45309' : '#047857', order:1 }
+      { label:'Presentadas', data: pres.map(v => v>0?v:null), backgroundColor:'rgba(0,240,255,0.28)',
+        borderColor:'#00f0ff', borderWidth:1, borderRadius:2 },
+      { label:'Ganadas', data: gan.map(v => v>0?v:null), backgroundColor:'rgba(10,255,157,0.4)',
+        borderColor:'#0aff9d', borderWidth:1, borderRadius:2 }
     ]},
     options: { responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
-      scales:{ x:{grid:{display:false}, ticks:{font:{size:11}}}, y:{ticks:{callback:v=>fmt0(v)+' €'}} },
+      scales:{ x:{ grid:{display:false}, ticks:{font:{size:11}} },
+               y:{ grid:{color:'rgba(0,240,255,0.07)'}, ticks:{callback:v=>fmt0(v)+' €'} } },
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: (c) => {
+        const n = c.datasetIndex === 0 ? nPres[c.dataIndex] : nGan[c.dataIndex];
+        return c.parsed.y != null ? ` ${c.dataset.label}: ${fmt0(c.parsed.y)} € (${n} ofertas)` : null;
+      } } } } }
+  });
+  $('chartComercialLegend').innerHTML =
+    '<span style="display:inline-block;width:14px;height:10px;background:rgba(0,240,255,0.28);border:1px solid #00f0ff;vertical-align:middle;margin-right:4px;border-radius:2px"></span>Presentadas' +
+    ' &nbsp; <span style="display:inline-block;width:14px;height:10px;background:rgba(10,255,157,0.4);border:1px solid #0aff9d;vertical-align:middle;margin-right:4px;border-radius:2px"></span>Ganadas';
+}
+
+let chartPipeEstadoObj = null, chartPipeLineasObj = null;
+function pintarChartsPipeline(pipe) {
+  Chart.defaults.color = '#6f7ba6';
+  Chart.defaults.borderColor = 'rgba(0,240,255,0.08)';
+  // Donut: a dónde ha ido el pipeline del ejercicio (ganado / abierto / perdido)
+  if (pipe.ganadas != null || pipe.abiertas != null) {
+    if (chartPipeEstadoObj) chartPipeEstadoObj.destroy();
+    chartPipeEstadoObj = new Chart($('chartPipeEstado'), {
+      type: 'doughnut',
+      data: { labels: ['Ganadas','Abiertas','Perdidas'], datasets: [{
+        data: [pipe.ganadas||0, pipe.abiertas||0, pipe.perdidas||0],
+        backgroundColor: ['rgba(10,255,157,0.4)','rgba(255,214,10,0.3)','rgba(255,42,109,0.35)'],
+        borderColor: ['#0aff9d','#ffd60a','#ff2a6d'], borderWidth: 1.5
+      }]},
+      options: { responsive:true, maintainAspectRatio:false, cutout:'62%',
+        plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11} } },
+          tooltip:{ callbacks:{ label: c => ` ${c.label}: ${fmt0(c.parsed)} €` } } } }
+    });
+  }
+  // Barras horizontales: ventas por línea de negocio
+  if (pipe.lineas) {
+    if (chartPipeLineasObj) chartPipeLineasObj.destroy();
+    chartPipeLineasObj = new Chart($('chartPipeLineas'), {
+      type: 'bar',
+      data: { labels: ['Cartera','Incidental','New business','Recurrente'], datasets: [{
+        data: [pipe.lineas.cartera, pipe.lineas.incidental, pipe.lineas.new_biz, pipe.lineas.recurrente],
+        backgroundColor: ['rgba(0,240,255,0.3)','rgba(255,42,109,0.3)','rgba(10,255,157,0.3)','rgba(176,38,255,0.3)'],
+        borderColor: ['#00f0ff','#ff2a6d','#0aff9d','#b026ff'], borderWidth: 1, borderRadius: 2
+      }]},
+      options: { responsive:true, maintainAspectRatio:false, indexAxis:'y',
+        scales:{ x:{ grid:{color:'rgba(0,240,255,0.07)'}, ticks:{callback:v=>fmt0(v/1000)+'k'} }, y:{ grid:{display:false} } },
+        plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: c => ` ${fmt0(c.parsed.x)} €` } } } }
+    });
+  }
+}
+
+let chartFactEjecObj = null, chartFactLineasObj = null;
+function pintarChartsFacturacion(fact) {
+  Chart.defaults.color = '#6f7ba6';
+  Chart.defaults.borderColor = 'rgba(0,240,255,0.08)';
+  // Donut: cuánto del ejercicio está ya ejecutado vs pendiente
+  if (fact.facturado != null) {
+    if (chartFactEjecObj) chartFactEjecObj.destroy();
+    chartFactEjecObj = new Chart($('chartFactEjec'), {
+      type: 'doughnut',
+      data: { labels: ['Facturado','Pendiente'], datasets: [{
+        data: [fact.facturado, fact.pendiente||0],
+        backgroundColor: ['rgba(10,255,157,0.4)','rgba(255,214,10,0.3)'],
+        borderColor: ['#0aff9d','#ffd60a'], borderWidth: 1.5
+      }]},
+      options: { responsive:true, maintainAspectRatio:false, cutout:'62%',
+        plugins:{ legend:{ position:'bottom', labels:{ boxWidth:10, boxHeight:10, font:{size:11} } },
+          tooltip:{ callbacks:{ label: c => ` ${c.label}: ${fmt0(c.parsed)} €` } } } }
+    });
+  }
+  // Barras horizontales: previsión de facturación por línea de negocio
+  if (fact.lineas) {
+    if (chartFactLineasObj) chartFactLineasObj.destroy();
+    chartFactLineasObj = new Chart($('chartFactLineas'), {
+      type: 'bar',
+      data: { labels: ['Cartera','Incidental','New business','Recurrente'], datasets: [{
+        data: [fact.lineas.cartera, fact.lineas.incidental, fact.lineas.new_biz, fact.lineas.recurrente],
+        backgroundColor: ['rgba(0,240,255,0.3)','rgba(255,42,109,0.3)','rgba(10,255,157,0.3)','rgba(176,38,255,0.3)'],
+        borderColor: ['#00f0ff','#ff2a6d','#0aff9d','#b026ff'], borderWidth: 1, borderRadius: 2
+      }]},
+      options: { responsive:true, maintainAspectRatio:false, indexAxis:'y',
+        scales:{ x:{ grid:{color:'rgba(0,240,255,0.07)'}, ticks:{callback:v=>fmt0(v/1000)+'k'} }, y:{ grid:{display:false} } },
+        plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: c => ` ${fmt0(c.parsed.x)} €` } } } }
+    });
+  }
+}
+
+function pintarChart(rows) {
+  // Gráfico representativo del ejercicio: cada mes muestra lo ya facturado (verde) y lo
+  // pendiente previsto (ámbar) apilados = previsión mensual; la línea cian es el acumulado
+  // del ejercicio (eje derecho), que termina en la previsión total.
+  const labels = rows.map(r => mesLabel(r.mes));
+  const fac = rows.map(r => +r.facturado||0), pdt = rows.map(r => +r.pendiente||0);
+  let suma = 0;
+  const acumulado = rows.map((_, i) => (suma += fac[i] + pdt[i]));
+  if (chartFacObj) chartFacObj.destroy();
+  Chart.defaults.color = '#6f7ba6';
+  Chart.defaults.borderColor = 'rgba(0,240,255,0.08)';
+  chartFacObj = new Chart($('chartFY26'), {
+    data: { labels, datasets: [
+      { type:'bar', label:'Facturado', data: fac.map(v => v>0?v:null), backgroundColor:'rgba(10,255,157,0.4)',
+        borderColor:'#0aff9d', borderWidth:1, borderRadius:2, stack:'mes', order:2 },
+      { type:'bar', label:'Pendiente previsto', data: pdt.map(v => v>0?v:null), backgroundColor:'rgba(255,214,10,0.25)',
+        borderColor:'#ffd60a', borderWidth:1, borderRadius:2, stack:'mes', order:3 },
+      { type:'line', label:'Acumulado FY26', data: acumulado, yAxisID:'y2', borderColor:'#00f0ff',
+        borderWidth:2, tension:0.25, fill:false, pointRadius:3, pointBackgroundColor:'#00f0ff',
+        pointBorderColor:'#00f0ff', order:1 }
+    ]},
+    options: { responsive:true, maintainAspectRatio:false, interaction:{mode:'index',intersect:false},
+      scales:{
+        x:{ stacked:true, grid:{display:false}, ticks:{font:{size:11}} },
+        y:{ stacked:true, grid:{color:'rgba(0,240,255,0.07)'}, ticks:{callback:v=>fmt0(v)+' €'} },
+        y2:{ position:'right', grid:{display:false}, ticks:{callback:v=>fmt0(v/1000)+'k'} }
+      },
       plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label: (c) =>
-        c.dataset.type==='bar' ? (c.parsed.y>0?`Ventas: ${fmt0(c.parsed.y)} €`:null)
-        : `${c.dataIndex>ultimo?'Pendiente':'Facturado'}: ${fmt0(c.parsed.y)} €` } } } }
+        c.parsed.y != null ? `${c.dataset.label}: ${fmt0(c.parsed.y)} €` : null } } } }
   });
   $('chartFY26Legend').innerHTML =
-    '<span style="display:inline-block;width:14px;height:10px;background:rgba(30,64,175,0.55);border:1px solid #1e40af;vertical-align:middle;margin-right:4px;border-radius:2px"></span>Ventas' +
-    ' &nbsp; <span style="display:inline-block;width:22px;border-top:2px solid #047857;vertical-align:middle;margin-right:4px"></span>Facturado' +
-    ' &nbsp; <span style="display:inline-block;width:22px;border-top:2px dashed #b45309;vertical-align:middle;margin-right:4px"></span>Pendiente';
+    '<span style="display:inline-block;width:14px;height:10px;background:rgba(10,255,157,0.4);border:1px solid #0aff9d;vertical-align:middle;margin-right:4px;border-radius:2px"></span>Facturado' +
+    ' &nbsp; <span style="display:inline-block;width:14px;height:10px;background:rgba(255,214,10,0.25);border:1px solid #ffd60a;vertical-align:middle;margin-right:4px;border-radius:2px"></span>Pendiente previsto' +
+    ' &nbsp; <span style="display:inline-block;width:22px;border-top:2px solid #00f0ff;vertical-align:middle;margin-right:4px"></span>Acumulado FY26 (eje dcho.)';
 }
 
 // ============================================================
@@ -565,12 +659,21 @@ function addMsg(cls, html) {
   return d;
 }
 
+function vozFemenina() {
+  const esVoces = speechSynthesis.getVoices().filter(v => v.lang && v.lang.toLowerCase().startsWith('es'));
+  const fem = /helena|laura|elvira|sabina|paloma|luc[ií]a|m[oó]nica|montse|dalia|camila|isidora|catalina|female|mujer/i;
+  return esVoces.find(v => fem.test(v.name))
+      || esVoces.find(v => /google/i.test(v.name))
+      || esVoces[0] || null;
+}
+
 function hablar(texto) {
   if (!$('chkVoz').checked || !('speechSynthesis' in window) || !texto) return;
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(texto);
   u.lang = 'es-ES';
-  const voz = speechSynthesis.getVoices().find(v => v.lang && v.lang.startsWith('es'));
+  u.pitch = 1.05;
+  const voz = vozFemenina();
   if (voz) u.voice = voz;
   u.onstart = () => teoEstado('hablando');
   u.onend = () => teoEstado('reposo');
@@ -631,6 +734,17 @@ async function preguntar(texto) {
   }
 }
 
+// --- Instalación PWA: el navegador ofrece su instalador nativo (Windows y Android) ---
+let installEvt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault(); installEvt = e;
+  const b = $('btnInstalar'); if (b) b.style.display = 'inline-block';
+});
+window.addEventListener('appinstalled', () => {
+  installEvt = null;
+  const b = $('btnInstalar'); if (b) b.style.display = 'none';
+});
+
 // --- Voz de entrada (Web Speech API) ---
 let rec = null;
 function initVoz() {
@@ -652,26 +766,40 @@ function initVoz() {
 // Arranque
 // ============================================================
 document.addEventListener('DOMContentLoaded', () => {
-  // botones extra en el login (Google, desbloqueo, activar)
+  // botones extra en el login (desbloqueo + respaldo por contraseña)
   const caja = document.querySelector('.login-caja');
-  const bG = document.createElement('button'); bG.id='btnGoogle'; bG.className='gris'; bG.style.marginTop='8px';
-  bG.textContent = 'Entrar con Google'; bG.onclick = loginGoogle;
   const bB = document.createElement('button'); bB.id='btnBioLogin'; bB.className='verde'; bB.style.marginTop='8px';
-  bB.textContent = '🔓 Desbloquear con este dispositivo'; bB.onclick = bioDesbloquear; bB.style.display='none';
+  bB.textContent = '🔓 Entrar (huella / Windows Hello / PIN)'; bB.onclick = bioDesbloquear; bB.style.display='none';
   caja.insertBefore(bB, caja.querySelector('.peq'));
-  caja.insertBefore(bG, bB);
+  const bP = document.createElement('button'); bP.id='btnUsarPass'; bP.className='gris mini'; bP.style.marginTop='8px'; bP.style.display='none';
+  bP.textContent = 'usar contraseña'; bP.onclick = () => { $('formPass').style.display='block'; bP.style.display='none'; $('loginPass').focus(); };
+  caja.insertBefore(bP, caja.querySelector('.peq'));
   const bA = document.createElement('button'); bA.id='btnBioActivar'; bA.className='gris mini'; bA.style.display='none';
   bA.textContent = '🔒 activar desbloqueo'; bA.onclick = bioActivar;
   $('btnSesion').after(bA);
 
   $('btnLogin').onclick = async () => {
     $('loginError').textContent = '';
-    try { await loginPassword($('loginEmail').value.trim(), $('loginPass').value); ocultarLogin(); refrescarSesionUI(); }
+    try {
+      await loginPassword($('loginEmail').value.trim(), $('loginPass').value); ocultarLogin(); refrescarSesionUI();
+      cargarPanel();
+      // Onboarding del sistema único: tras la primera contraseña, ofrecer el desbloqueo.
+      if (!bioActivada() && window.PublicKeyCredential) {
+        setTimeout(() => {
+          if (confirm('¿Activar el desbloqueo del dispositivo (huella / Windows Hello / PIN)? No volverás a necesitar la contraseña en este equipo.')) bioActivar();
+        }, 300);
+      }
+    }
     catch (e) { $('loginError').textContent = e.message; }
   };
   $('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnLogin').click(); });
-  $('btnSoloPanel').onclick = ocultarLogin;
+  // la capa de login es modal: toda la app (dashboard incluido) queda tras el login
   $('btnSesion').onclick = () => { if (ses) cerrarSesion(); else mostrarLogin(); };
+  $('btnInstalar').onclick = async () => {
+    if (!installEvt) return;
+    installEvt.prompt(); await installEvt.userChoice;
+    installEvt = null; $('btnInstalar').style.display = 'none';
+  };
 
   $('refresh').onclick = cargarPanel;
   $('btnBuscar').onclick = buscar;
@@ -693,19 +821,15 @@ document.addEventListener('DOMContentLoaded', () => {
   initVoz();
   if ('speechSynthesis' in window) speechSynthesis.getVoices(); // precarga de voces
 
-  // sesión previa: OAuth en la URL > sesión en claro > desbloqueo del dispositivo > sin sesión
-  if (capturarOAuthHash()) { ocultarLogin(); }
-  else {
-    const guardada = localStorage.getItem(LS_SES);
-    if (guardada && !bioActivada()) {
-      ses = JSON.parse(guardada);
-      getToken(); // refresca si caducó
-    } else if (bioActivada()) {
-      mostrarLogin(); // ofrece "desbloquear con este dispositivo"
-    }
+  // sesión previa: sesión en claro > desbloqueo del dispositivo > login obligatorio
+  const guardada = localStorage.getItem(LS_SES);
+  if (guardada && !bioActivada()) {
+    ses = JSON.parse(guardada);
+    getToken(); // refresca si caducó
   }
   refrescarSesionUI();
-  cargarPanel();
+  if (ses) cargarPanel();
+  else mostrarLogin();   // dashboard incluido: sin sesión no se carga nada
 
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
 });
