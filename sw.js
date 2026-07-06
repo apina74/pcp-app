@@ -1,6 +1,8 @@
-// Service worker mínimo: cachea el armazón estático para que la app abra offline.
+// Service worker: cachea el armazón estático para que la app abra offline.
 // Los datos (vistas v_cm_* y Q&A) NUNCA se cachean: siempre se piden frescos a la red.
-const CACHE = 'pcp-v17';
+// v18: navegación RED-PRIMERO (las versiones nuevas entran a la primera apertura;
+// la caché solo responde sin conexión) + instalación saltándose la caché HTTP.
+const CACHE = 'pcp-v18';
 const ASSETS = [
   './index.html',
   './styles.css',
@@ -13,7 +15,12 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // cache: 'reload' evita heredar copias viejas de la caché HTTP del navegador
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (e) => {
@@ -27,6 +34,19 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   // Datos de Supabase (REST y Edge Functions): siempre red, nunca caché.
   if (url.hostname.endsWith('.supabase.co')) return;
-  // Resto: caché primero, red de respaldo.
+  // Navegación (abrir la app): red primero — así cada publicación entra a la primera.
+  if (e.request.mode === 'navigate') {
+    e.respondWith(
+      fetch(e.request)
+        .then((r) => {
+          const copia = r.clone();
+          caches.open(CACHE).then((c) => c.put('./index.html', copia));
+          return r;
+        })
+        .catch(() => caches.match('./index.html'))
+    );
+    return;
+  }
+  // Resto de assets: caché primero, red de respaldo.
   e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request)));
 });
