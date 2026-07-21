@@ -34,7 +34,7 @@
 <div class="top">
   <div class="top-row">
     <h1>PCP <span style="font-weight:400;color:#6f7ba6;font-size:12px;text-shadow:none">Panel de Control Personal · v9</span></h1>
-    <span class="sub">FY oct-25 a sep-26 · <span id="hoy"></span></span>
+    <span class="sub"><span id="fyRotulo">FY oct-25 a sep-26</span> · <span id="hoy"></span></span>
     <span class="spacer"></span>
     <span id="sesionInfo" class="status"></span>
     <button id="btnInstalar" class="verde mini" style="display:none">⬇ Instalar app</button>
@@ -56,11 +56,11 @@
     <span id="status" class="status">cargando…</span>
   </div>
 
-  <h2 class="section-title">Facturación FY26</h2>
+  <h2 class="section-title">Facturación <span class="js-fy">FY26</span></h2>
   <div class="hero">
     <div class="hero-row">
       <div class="hero-cell left">
-        <div class="hero-label">Facturación FY26 acumulada</div>
+        <div class="hero-label">Facturación <span class="js-fy">FY26</span> acumulada</div>
         <div class="hero-value facturado" id="vFacturado"><span class="skeleton">…</span></div>
         <div class="hero-sub" id="sFacturado"></div>
       </div>
@@ -102,24 +102,24 @@
       </div>
       <div class="cf-arrow in" aria-hidden="true"></div>
       <div class="cf-nodo caja">
-        <div class="cf-lbl">FY26</div>
+        <div class="cf-lbl js-fy">FY26</div>
         <div class="cf-val fy" id="cfPrev">— €</div>
         <div class="cf-sub">previsión del ejercicio</div>
       </div>
       <div class="cf-arrow out" aria-hidden="true"></div>
       <div class="cf-nodo salida">
-        <div class="cf-lbl">Carry-forward previsto (post-FY26)</div>
+        <div class="cf-lbl">Carry-forward previsto (post-<span class="js-fy">FY26</span>)</div>
         <div class="cf-val out" id="vCarryPost">— €</div>
         <div class="cf-sub" id="sCarryPost"></div>
       </div>
     </div>
   </div>
 
-  <h2 class="section-title">Pipeline comercial FY26</h2>
+  <h2 class="section-title">Pipeline comercial <span class="js-fy">FY26</span></h2>
   <div class="hero">
     <div class="ventas-row">
       <div>
-        <div class="hero-label">Ventas FY26 (propuestas aceptadas)</div>
+        <div class="hero-label">Ventas <span class="js-fy">FY26</span> (propuestas aceptadas)</div>
         <div class="hero-value ventas" id="vVentas"><span class="skeleton">…</span></div>
         <div class="hero-sub" id="sVentas"></div>
       </div>
@@ -129,7 +129,7 @@
         <div class="hero-sub" id="sOportu"></div>
       </div>
       <div class="perdidas-cell">
-        <div class="hero-label">Propuestas perdidas FY26</div>
+        <div class="hero-label">Propuestas perdidas <span class="js-fy">FY26</span></div>
         <div class="hero-value perdidas" id="vPerdidas">— €</div>
         <div class="hero-sub" id="sPerdidas"></div>
       </div>

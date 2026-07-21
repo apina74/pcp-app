@@ -2,7 +2,7 @@
 // Los datos (vistas v_cm_* y Q&A) NUNCA se cachean: siempre se piden frescos a la red.
 // v18: navegación RED-PRIMERO (las versiones nuevas entran a la primera apertura;
 // la caché solo responde sin conexión) + instalación saltándose la caché HTTP.
-const CACHE = 'pcp-v18';
+const CACHE = 'pcp-v19';
 const ASSETS = [
   './index.html',
   './styles.css',

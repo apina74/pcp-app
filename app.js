@@ -20,6 +20,33 @@ const MESES_ES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','n
 const mesLabel = (m) => { const [a, mm] = String(m).split('-'); return mm ? `${MESES_ES[+mm-1]} '${a.slice(2)}` : m; };
 $('hoy').textContent = new Date().toISOString().slice(0,10);
 
+// ===== Ejercicio fiscal activo (v_cm_fy) =====
+// Los rótulos de FY se leen de la BD: al hacer el rollover (marcar es_actual en
+// ejercicio_fiscal) la app se adapta sola, sin tocar código. Si la carga falla, se
+// quedan los valores por defecto del HTML.
+let FY = null;
+const fyCod = () => (FY && FY.codigo) || 'FY26';
+const fyFinCorto = () => {
+  if (!FY) return '30-sep';
+  const d = new Date(FY.fecha_fin + 'T00:00:00');
+  return `${d.getDate()}-${MESES_ES[d.getMonth()]}`;
+};
+async function cargarFy() {
+  try {
+    const r = await fetch(`${REST}/v_cm_fy?select=*`, { headers: { apikey: ANON, Authorization: `Bearer ${ANON}` } });
+    const [f] = r.ok ? await r.json() : [];
+    if (!f) return;
+    FY = f;
+    const ab = (s) => { const d = new Date(s + 'T00:00:00'); return `${MESES_ES[d.getMonth()]}-${String(d.getFullYear()).slice(2)}`; };
+    const rot = $('fyRotulo');
+    if (rot) rot.textContent = `FY ${ab(f.fecha_inicio)} a ${ab(f.fecha_fin)}`;
+    // OJO: la clase 'fy' ya existe en styles.css (.cf-val.fy) sobre el importe #cfPrev.
+    // El marcador de rótulo es 'js-fy' a propósito, para no sobrescribir esa cifra.
+    document.querySelectorAll('.js-fy').forEach((e) => { e.textContent = f.codigo; });
+  } catch { /* rótulos por defecto */ }
+}
+cargarFy();
+
 // ============================================================
 // SESIÓN (sin librerías: REST de Supabase Auth)
 // ============================================================
@@ -247,14 +274,14 @@ async function cargarPanel() {
     $('vFacturado').textContent = fmt0(r.facturado) + ' €';
     $('sFacturado').textContent = `${r.n_facturado||0} facturas reales + placeholders ya emitidos`;
     $('vPendiente').textContent = fmt0(r.pendiente) + ' €';
-    $('sPendiente').textContent = `${r.n_pendiente||0} placeholders y hitos hasta 30-sep`;
+    $('sPendiente').textContent = `${r.n_pendiente||0} placeholders y hitos hasta ${fyFinCorto()}`;
     $('vPrevision').textContent = fmt0((+r.facturado||0)+(+r.pendiente||0)) + ' €';
     $('sPrevision').textContent = `${(r.n_facturado||0)+(r.n_pendiente||0)} conceptos`;
     $('cfPrev').textContent = fmt0((+r.facturado||0)+(+r.pendiente||0)) + ' €';
     $('vCarryAnt').textContent = '+' + fmt0(r.carry_ant) + ' €';
-    $('sCarryAnt').textContent = `${r.n_carry_ant||0} hitos FY26 de propuestas pre-FY26`;
+    $('sCarryAnt').textContent = `${r.n_carry_ant||0} hitos ${fyCod()} de propuestas pre-${fyCod()}`;
     $('vCarryPost').textContent = '−' + fmt0(r.carry_post) + ' €';
-    $('sCarryPost').textContent = `${r.n_carry_post||0} hitos posteriores al cierre FY26`;
+    $('sCarryPost').textContent = `${r.n_carry_post||0} hitos posteriores al cierre ${fyCod()}`;
     fact.facturado = +r.facturado||0; fact.pendiente = +r.pendiente||0;
   });
   const r2 = paso('v_cm_serie_mensual', (rows) => pintarChart(rows||[]), '&order=mes.asc');
@@ -263,9 +290,9 @@ async function cargarPanel() {
     const tot = (+r.ventas||0)+(+r.perdidas||0);
     const pct = (n) => tot>0 ? ((n/tot)*100).toFixed(1).replace('.',',')+'%' : '—';
     $('vVentas').innerHTML = fmt0(r.ventas) + ' € <span class="pct">' + pct(+r.ventas||0) + '</span>';
-    $('sVentas').textContent = `${r.n_ventas||0} propuestas aceptadas en FY26`;
+    $('sVentas').textContent = `${r.n_ventas||0} propuestas aceptadas en ${fyCod()}`;
     $('vPerdidas').innerHTML = fmt0(r.perdidas) + ' € <span class="pct">' + pct(+r.perdidas||0) + '</span>';
-    $('sPerdidas').textContent = `${r.n_perdidas||0} propuestas rechazadas FY26`;
+    $('sPerdidas').textContent = `${r.n_perdidas||0} propuestas rechazadas ${fyCod()}`;
     pipe.ganadas = +r.ventas||0; pipe.perdidas = +r.perdidas||0;
   });
   const r4 = paso('v_cm_oportunidades', (rows) => { const r = rows[0]; if (!r) return;
@@ -417,7 +444,7 @@ function pintarChart(rows) {
         borderColor:'#0aff9d', borderWidth:1, borderRadius:2, stack:'mes', order:2 },
       { type:'bar', label:'Pendiente previsto', data: pdt.map(v => v>0?v:null), backgroundColor:'rgba(255,214,10,0.25)',
         borderColor:'#ffd60a', borderWidth:1, borderRadius:2, stack:'mes', order:3 },
-      { type:'line', label:'Acumulado FY26', data: acumulado, yAxisID:'y2', borderColor:'#00f0ff',
+      { type:'line', label:`Acumulado ${fyCod()}`, data: acumulado, yAxisID:'y2', borderColor:'#00f0ff',
         borderWidth:2, tension:0.25, fill:false, pointRadius:3, pointBackgroundColor:'#00f0ff',
         pointBorderColor:'#00f0ff', order:1 }
     ]},
@@ -433,7 +460,7 @@ function pintarChart(rows) {
   $('chartFY26Legend').innerHTML =
     '<span style="display:inline-block;width:14px;height:10px;background:rgba(10,255,157,0.4);border:1px solid #0aff9d;vertical-align:middle;margin-right:4px;border-radius:2px"></span>Facturado' +
     ' &nbsp; <span style="display:inline-block;width:14px;height:10px;background:rgba(255,214,10,0.25);border:1px solid #ffd60a;vertical-align:middle;margin-right:4px;border-radius:2px"></span>Pendiente previsto' +
-    ' &nbsp; <span style="display:inline-block;width:22px;border-top:2px solid #00f0ff;vertical-align:middle;margin-right:4px"></span>Acumulado FY26 (eje dcho.)';
+    ' &nbsp; <span style="display:inline-block;width:22px;border-top:2px solid #00f0ff;vertical-align:middle;margin-right:4px"></span>Acumulado ' + fyCod() + ' (eje dcho.)';
 }
 
 // ============================================================
