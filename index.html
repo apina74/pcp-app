@@ -53,7 +53,7 @@
 <section id="pantalla-panel" class="pantalla activa">
   <div class="top-row" style="margin-bottom:10px">
     <button id="refresh" class="azul">Actualizar</button>
-    <span id="status" class="status">cargando…</span>
+    <span id="status" class="status">inicia sesión para cargar</span>
   </div>
 
   <h2 class="section-title">Facturación <span class="js-fy">FY26</span></h2>
@@ -165,10 +165,12 @@
     <button class="subtab activa" data-sub="facturas">Facturas</button>
     <button class="subtab" data-sub="propuestas">Propuestas</button>
     <button class="subtab" data-sub="hitos">Hitos</button>
+    <button class="subtab" data-sub="proyectos">Proyectos</button>
   </div>
   <div class="filtros">
     <select id="fEstado"><option value="">— estado —</option></select>
     <input id="fCliente" type="text" placeholder="cliente (nombre o NIF)" style="width:200px">
+    <input id="fResponsable" type="text" placeholder="responsable (proyectos)" style="width:160px">
     <input id="fDesde" type="date"> <span class="sub">a</span> <input id="fHasta" type="date">
     <button id="btnBuscar" class="azul">Buscar</button>
     <span class="spacer" style="flex:1"></span>

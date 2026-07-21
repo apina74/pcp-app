@@ -373,6 +373,10 @@ table.datos tfoot td { font-weight: 700; background: #0a0c1c; border-top: 1px so
 .pill.OPORTUNIDAD { border-color: rgba(176,38,255,.55); color: #d9a5ff; } .pill.PROPUESTA_ENVIADA { border-color: rgba(0,240,255,.5); color: var(--navy-800); } .pill.CERRADA { border-color: #333c66; color: #8b96c4; }
 .pill.previsto { border-color: rgba(255,214,10,.5); color: var(--ambar); } .pill.facturable { border-color: rgba(0,240,255,.5); color: var(--navy-800); } .pill.facturado { border-color: rgba(10,255,157,.5); color: var(--verde); }
 .pill.alta { border-color: rgba(255,56,96,.55); color: var(--rojo); } .pill.media { border-color: rgba(255,214,10,.5); color: var(--ambar); } .pill.baja { border-color: #333c66; color: #8b96c4; }
+.pill.cobrado { border-color: rgba(10,255,157,.5); color: var(--verde); }
+.pill.EN_CURSO { border-color: rgba(0,240,255,.5); color: var(--navy-800); } .pill.FINISHED { border-color: rgba(10,255,157,.5); color: var(--verde); }
+.pill.POR_INICIAR { border-color: #333c66; color: #8b96c4; } .pill.PAUSADO { border-color: #333c66; color: #8b96c4; } .pill.LOST { border-color: rgba(255,56,96,.55); color: var(--rojo); }
+.pill.PENDIENTE_INFO { border-color: rgba(255,214,10,.5); color: var(--ambar); } .pill.PENDIENTE_REVISION_CLIENTE { border-color: rgba(255,214,10,.5); color: var(--ambar); }
 
 /* ---------- Subir documentos ---------- */
 .subir-caja {
@@ -417,6 +421,8 @@ table.datos tfoot td { font-weight: 700; background: #0a0c1c; border-top: 1px so
 }
 .msg.teo .prov { display: block; font-size: 9.5px; color: #4a5480; margin-top: 7px; font-family: 'Share Tech Mono', monospace; }
 .msg .tabla-scroll { margin-top: 10px; max-height: 300px; overflow: auto; box-shadow: none; }
+.tarjeta-accion { border: 1px solid rgba(255,214,10,.4); border-radius: 6px; padding: 9px 12px; margin-top: 6px; background: rgba(255,214,10,.04); }
+.tarjeta-accion .sub { color: #9aa5d0; font-size: 11.5px; margin-top: 5px; }
 .chat-input { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--borde); background: #0a0c1a; border-radius: 0 0 var(--radio) var(--radio); }
 .chat-input input { flex: 1; }
 #btnMic.escuchando { background: rgba(255,56,96,.16); border-color: var(--rojo); color: var(--rojo); animation: micPulso 1.1s ease-in-out infinite alternate; }

@@ -52,7 +52,7 @@ cargarFy();
 // ============================================================
 let ses = null;            // { access_token, refresh_token, expires_at } en memoria
 let bioKey = null;         // clave AES derivada del desbloqueo del dispositivo (en memoria)
-const LS_SES = 'cm_sesion_v8', LS_BIO = 'cm_bio_v8', LS_BIO_DATA = 'cm_bio_data_v8';
+const LS_SES = 'cm_sesion_v8', LS_BIO = 'cm_bio_v8', LS_BIO_DATA = 'cm_bio_data_v8', LS_VOZ = 'cm_voz_v8';
 
 function emailDe(tok) {
   try { return JSON.parse(atob(tok.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'))).email || ''; }
@@ -251,6 +251,11 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   // Toda la app queda tras el login (decisión 2026-07-05): cualquier pestaña exige sesión.
   if (!ses) mostrarLogin();
   if (t.dataset.pantalla === 'alertas' && ses) cargarAlertas();
+  if (t.dataset.pantalla === 'asistente' && ses && !autoBriefingHecho) {
+    autoBriefingHecho = true;
+    $('chatLog').innerHTML = '';
+    cargarBriefing(addMsg('teo', '<em>preparando briefing…</em>'));
+  }
 }));
 
 // ============================================================
@@ -466,20 +471,30 @@ function pintarChart(rows) {
 // ============================================================
 // EXPLORAR (detalle con sesión) + acciones
 // ============================================================
-let sub = 'facturas', clientes = {};       // id -> {nombre, nif}
+let sub = 'facturas', clientes = {}, usuarios = {};   // id -> {nombre, nif} / id -> {nombre}
 let ultimaFilas = [], ultimaCols = [];
 
 const ESTADOS = {
   facturas:   ['EMITIDA','ENVIADA','COBRADA','ANULADA'],
   propuestas: ['OPORTUNIDAD','PROPUESTA_ENVIADA','CERRADA'],
-  hitos:      ['previsto','facturable','facturado'],
+  hitos:      ['previsto','facturable','facturado','cobrado'],
+  proyectos:  ['POR_INICIAR','EN_CURSO','PENDIENTE_INFO','PENDIENTE_REVISION_CLIENTE','PAUSADO','FINISHED','LOST'],
 };
 
+let clientesTruncado = false;
 async function cargarClientes() {
   if (Object.keys(clientes).length) return;
   try {
     const rows = await fetchDetalle('/entidad_legal?select=id,denominacion_social,nif&limit=1000');
     rows.forEach(r => clientes[r.id] = { nombre: r.denominacion_social, nif: r.nif });
+    clientesTruncado = rows.length === 1000; // E6: aviso si se supera el límite de carga
+  } catch (e) { /* sin sesión */ }
+}
+async function cargarUsuarios() {
+  if (Object.keys(usuarios).length) return;
+  try {
+    const rows = await fetchDetalle('/usuario_interno?select=id,nombre_visualizacion&limit=200');
+    rows.forEach(r => usuarios[r.id] = { nombre: r.nombre_visualizacion });
   } catch (e) { /* sin sesión */ }
 }
 
@@ -495,8 +510,9 @@ document.querySelectorAll('.subtab').forEach(b => b.addEventListener('click', ()
 async function buscar() {
   const st = $('expStatus'); st.textContent = 'buscando…'; st.className = 'status';
   try {
-    await cargarClientes();
+    await cargarClientes(); await cargarUsuarios();
     const est = $('fEstado').value, cli = $('fCliente').value.trim().toLowerCase();
+    const resp = $('fResponsable').value.trim().toLowerCase();
     const d1 = $('fDesde').value, d2 = $('fHasta').value;
     let filas = [], cols = [];
     if (sub === 'facturas') {
@@ -513,8 +529,8 @@ async function buscar() {
         { k:'estado', t:'Estado', pill:true },
         { k:'base_imponible', t:'Base €', num:true }, { k:'total', t:'Total €', num:true },
         { k:'fecha_cobro', t:'Cobro' },
-        { k:'_acc', t:'', f:(v,r)=> ['ENVIADA','EMITIDA'].includes(r.estado)
-            ? `<button class="verde mini" onclick="accionCobrada('${r.id}','${(r.numero_auxadi||r.codigo_legible||'').replace(/'/g,'')}')">✓ cobrada</button>` : '' }
+        { k:'_acc', t:'', html:true, f:(v,r)=> ['ENVIADA','EMITIDA'].includes(r.estado)
+            ? `<button class="verde mini" data-accion="cobrada" data-id="${r.id}" data-ref="${esc(r.numero_auxadi||r.codigo_legible||'')}">✓ cobrada</button>` : '' }
       ];
     } else if (sub === 'propuestas') {
       let q = '/propuesta?select=id,codigo_legible,estado,resultado_cierre,fecha_envio,fecha_aceptacion,importe_propuesto,importe_aceptado,cliente_servicio_id&order=creado_en.desc&limit=500';
@@ -527,53 +543,115 @@ async function buscar() {
         { k:'codigo_legible', t:'Código' }, { k:'cliente', t:'Cliente' },
         { k:'estado', t:'Estado', pill:true }, { k:'resultado_cierre', t:'Resultado' },
         { k:'fecha_envio', t:'Envío' }, { k:'fecha_aceptacion', t:'Aceptación' },
-        { k:'importe', t:'Importe €', num:true }
+        { k:'importe', t:'Importe €', num:true },
+        { k:'_acc', t:'', html:true, f:(v,r)=> r.estado === 'PROPUESTA_ENVIADA'
+            ? `<button class="azul mini" data-accion="seguimiento" data-id="${r.id}" data-ref="${esc(r.codigo_legible||'')}">📞 seguir</button>` : '' }
       ];
-    } else {
-      let q = '/hito_facturacion?select=id,codigo_legible,estado,fecha_prevista,importe_neto,descripcion&order=fecha_prevista.asc&limit=500';
+    } else if (sub === 'hitos') {
+      let q = '/hito_facturacion?select=id,codigo_legible,estado,fecha_prevista,importe_neto,descripcion,proyecto_linea_id&order=fecha_prevista.asc&limit=500';
       if (est) q += `&estado=eq.${est}`;
       if (d1) q += `&fecha_prevista=gte.${d1}`; if (d2) q += `&fecha_prevista=lte.${d2}`;
-      filas = await fetchDetalle(q);
+      let rows = await fetchDetalle(q);
+      // Cliente/Proyecto vía embedding REST (v_cm_hitos_det no es legible por authenticated, F1)
+      const plIds = [...new Set(rows.map(r => r.proyecto_linea_id).filter(Boolean))];
+      let plMap = {};
+      if (plIds.length) {
+        const pls = await fetchDetalle(`/proyecto_linea?select=id,proyecto_id&id=in.(${plIds.join(',')})`);
+        const prIds = [...new Set(pls.map(p => p.proyecto_id))];
+        const prs = prIds.length ? await fetchDetalle(`/proyecto?select=id,codigo_legible,cliente_facturacion_id&id=in.(${prIds.join(',')})`) : [];
+        const prMap = {}; prs.forEach(p => prMap[p.id] = p);
+        pls.forEach(p => plMap[p.id] = prMap[p.proyecto_id]);
+      }
+      rows.forEach(r => {
+        const pr = plMap[r.proyecto_linea_id];
+        r.proyecto = pr ? pr.codigo_legible : '—';
+        r.cliente = pr ? (clientes[pr.cliente_facturacion_id]||{}).nombre || '—' : '—';
+      });
+      filas = rows;
       cols = [
-        { k:'codigo_legible', t:'Hito' }, { k:'descripcion', t:'Descripción' },
+        { k:'codigo_legible', t:'Hito' }, { k:'cliente', t:'Cliente' }, { k:'proyecto', t:'Proyecto' },
+        { k:'descripcion', t:'Descripción' },
         { k:'estado', t:'Estado', pill:true }, { k:'fecha_prevista', t:'Prevista' },
         { k:'importe_neto', t:'Importe €', num:true },
-        { k:'_acc', t:'', f:(v,r)=> ['previsto','facturable'].includes(r.estado)
-            ? `<button class="azul mini" onclick="accionMoverHito('${r.id}','${(r.codigo_legible||'').replace(/'/g,'')}','${r.fecha_prevista||''}')">📅 mover</button>` : '' }
+        { k:'_acc', t:'', html:true, f:(v,r)=> ['previsto','facturable'].includes(r.estado)
+            ? `<button class="azul mini" data-accion="mover-hito" data-id="${r.id}" data-ref="${esc(r.codigo_legible||'')}" data-fecha="${esc(r.fecha_prevista||'')}">📅 mover</button>` : '' }
+      ];
+    } else {
+      let q = '/proyecto?select=id,codigo_legible,estado,fecha_inicio,fecha_cierre_estimada,cliente_facturacion_id,client_owner_id,manager_id&order=actualizado_en.desc&limit=500';
+      if (est) q += `&estado=eq.${est}`;
+      if (d1) q += `&fecha_inicio=gte.${d1}`; if (d2) q += `&fecha_inicio=lte.${d2}`;
+      let rows = await fetchDetalle(q);
+      const lineas = await fetchDetalle('/proyecto_linea?select=proyecto_id,importe&limit=1000');
+      const importePorProyecto = {};
+      lineas.forEach(l => { importePorProyecto[l.proyecto_id] = (importePorProyecto[l.proyecto_id]||0) + (+l.importe||0); });
+      rows.forEach(r => {
+        const c = clientes[r.cliente_facturacion_id]||{};
+        r.cliente = c.nombre||'—'; r._nif = c.nif||'';
+        r.owner = (usuarios[r.client_owner_id]||{}).nombre || '—';
+        r.manager = (usuarios[r.manager_id]||{}).nombre || '—';
+        r.importe = importePorProyecto[r.id] || 0;
+      });
+      if (resp) rows = rows.filter(r => (r.owner||'').toLowerCase().includes(resp) || (r.manager||'').toLowerCase().includes(resp));
+      filas = rows;
+      cols = [
+        { k:'codigo_legible', t:'Código' }, { k:'cliente', t:'Cliente' },
+        { k:'estado', t:'Estado', pill:true },
+        { k:'fecha_inicio', t:'Inicio' }, { k:'fecha_cierre_estimada', t:'Cierre est.' },
+        { k:'owner', t:'Owner' }, { k:'manager', t:'Manager' },
+        { k:'importe', t:'Importe €', num:true }
       ];
     }
     ultimaFilas = filas; ultimaCols = cols;
     $('expTabla').innerHTML = tablaHtml(filas, cols);
-    st.textContent = `${filas.length} resultado(s)`;
+    st.textContent = `${filas.length} resultado(s)` + (filas.length === 500 ? ' — ⚠ limitados a 500, afina el filtro' : '')
+      + (clientesTruncado ? ' — ⚠ lista de clientes limitada a 1000, el filtro por cliente puede estar incompleto' : '');
   } catch (e) {
     if (e.message === 'SIN_SESION') { mostrarLogin(); st.textContent = 'inicia sesión para ver el detalle'; }
     else { st.textContent = e.message; st.className = 'status error'; }
   }
 }
 
+// E1/E2: cualquier valor que venga de datos (denominaciones sociales, descripciones de
+// hitos, notas...) se escapa antes de insertarse en el DOM. Solo las columnas marcadas
+// c.html (botones de acción, construidos por este propio código con data-* + delegación,
+// nunca con el dato del usuario interpolado en el atributo onclick) se insertan tal cual.
+function esc(v) {
+  return String(v).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 function tablaHtml(filas, cols) {
   if (!filas.length) return '<div style="padding:20px;color:#888">sin resultados</div>';
   const numCols = cols.filter(c => c.num).map(c => c.k);
   const sum = {}; numCols.forEach(k => sum[k] = filas.reduce((a,r) => a + (+r[k]||0), 0));
-  const th = cols.map(c => `<th>${c.t}</th>`).join('');
+  const th = cols.map(c => `<th>${esc(c.t)}</th>`).join('');
   const trs = filas.map(r => '<tr>' + cols.map(c => {
     let v = c.f ? c.f(r[c.k], r) : r[c.k];
     if (v == null) v = '';
-    if (c.pill && v) v = `<span class="pill ${r[c.k]}">${v}</span>`;
-    if (c.num) v = v === '' ? '' : fmt2(v);
-    return `<td${c.num?' class="num"':''}>${v}</td>`;
+    if (c.pill && v) return `<td><span class="pill ${esc(r[c.k])}">${esc(v)}</span></td>`;
+    if (c.html) return `<td>${v}</td>`;
+    if (c.num) return `<td class="num">${v === '' ? '' : fmt2(v)}</td>`;
+    return `<td>${esc(v)}</td>`;
   }).join('') + '</tr>').join('');
   const tf = '<tr>' + cols.map(c => c.num ? `<td class="num">${fmt2(sum[c.k])}</td>` : '<td></td>').join('') + '</tr>';
   return `<table class="datos"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody><tfoot>${tf}</tfoot></table>`;
 }
+// Delegación de eventos para los botones de acción de las tablas (E2): nunca se interpola
+// el dato del usuario en un atributo onclick, solo en data-* ya escapados por esc().
+$('expTabla').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-accion]');
+  if (!b) return;
+  const { accion, id, ref, fecha } = b.dataset;
+  if (accion === 'cobrada') accionCobrada(id, ref);
+  else if (accion === 'mover-hito') accionMoverHito(id, ref, fecha);
+  else if (accion === 'seguimiento') accionSeguimiento(id, ref);
+});
 
 // Acciones de escritura (RPC controladas)
 window.accionCobrada = async (id, ref) => {
-  const fecha = prompt(`Marcar ${ref} como COBRADA.\nFecha de cobro (YYYY-MM-DD):`, new Date().toISOString().slice(0,10));
+  const fecha = prompt(`Marcar ${ref} como COBRADA (estimación — no es un dato confirmado por el cliente).\nFecha de cobro (YYYY-MM-DD):`, new Date().toISOString().slice(0,10));
   if (!fecha) return;
   try {
     const r = await rpc('cm_marcar_cobrada', { p_factura_id: id, p_fecha: fecha });
-    alert(r.ok ? `✓ ${r.factura} cobrada (${r.fecha_cobro})` : `No se pudo: ${r.error}`);
+    alert(r.ok ? `✓ ${r.factura} cobrada — estimado (${r.fecha_cobro})` : `No se pudo: ${r.error}`);
     if (r.ok) { buscar(); cargarBadgeAlertas(); }
   } catch (e) { alert('Error: ' + e.message); }
 };
@@ -583,6 +661,15 @@ window.accionMoverHito = async (id, ref, actual) => {
   try {
     const r = await rpc('cm_reprogramar_hito', { p_hito_id: id, p_fecha: fecha });
     alert(r.ok ? `✓ ${r.hito}: ${r.antes} → ${r.ahora}` : `No se pudo: ${r.error}`);
+    if (r.ok) { buscar(); cargarBadgeAlertas(); }
+  } catch (e) { alert('Error: ' + e.message); }
+};
+window.accionSeguimiento = async (id, ref) => {
+  const nota = prompt(`Registrar seguimiento de ${ref}.\n¿Qué se ha hecho/hablado?`);
+  if (!nota) return;
+  try {
+    const r = await rpc('cm_registrar_seguimiento_propuesta', { p_propuesta_id: id, p_nota: nota });
+    alert(r.ok ? `✓ Seguimiento registrado en ${r.propuesta} (${r.fecha})` : `No se pudo: ${r.error}`);
     if (r.ok) { buscar(); cargarBadgeAlertas(); }
   } catch (e) { alert('Error: ' + e.message); }
 };
@@ -707,17 +794,176 @@ function hablar(texto) {
   speechSynthesis.speak(u);
 }
 
+// FASE E: la IA propone una acción con un identificador NATURAL (nunca un UUID); la
+// resolución a un documento real la hace este código, determinista, para no confiar en
+// que la IA "sepa" qué facturas/hitos hay. Solo tras confirmación explícita se llama a la RPC.
+async function resolverIdentificador(rpcNombre, identificador) {
+  await cargarClientes();
+  const q = (identificador || '').trim();
+  if (!q) return [];
+  if (rpcNombre === 'cm_marcar_cobrada') {
+    const idsCliente = Object.entries(clientes)
+      .filter(([, c]) => (c.nombre || '').toLowerCase().includes(q.toLowerCase()))
+      .map(([id]) => id);
+    const or = [`numero_auxadi.ilike.*${q}*`, `codigo_legible.ilike.*${q}*`];
+    if (idsCliente.length) or.push(`cliente_facturacion_id.in.(${idsCliente.join(',')})`);
+    const rows = await fetchDetalle(`/factura?select=id,numero_auxadi,codigo_legible,estado,base_imponible,total,cliente_facturacion_id&or=(${or.join(',')})&limit=20`);
+    return rows.map(r => ({
+      id: r.id, ref: r.numero_auxadi || r.codigo_legible, estado: r.estado,
+      cliente: (clientes[r.cliente_facturacion_id] || {}).nombre || '—',
+      importe: r.total ?? r.base_imponible,
+    }));
+  }
+  if (rpcNombre === 'cm_reprogramar_hito') {
+    const rows = await fetchDetalle(`/hito_facturacion?select=id,codigo_legible,estado,importe_neto,fecha_prevista&codigo_legible=ilike.*${q}*&limit=20`);
+    return rows.map(r => ({ id: r.id, ref: r.codigo_legible, estado: r.estado, importe: r.importe_neto, fecha_prevista: r.fecha_prevista }));
+  }
+  // cm_registrar_seguimiento_propuesta
+  const idsCliente = Object.entries(clientes)
+    .filter(([, c]) => (c.nombre || '').toLowerCase().includes(q.toLowerCase()))
+    .map(([id]) => id);
+  const or = [`codigo_legible.ilike.*${q}*`];
+  if (idsCliente.length) or.push(`cliente_servicio_id.in.(${idsCliente.join(',')})`, `cliente_facturacion_id.in.(${idsCliente.join(',')})`);
+  const rows = await fetchDetalle(`/propuesta?select=id,codigo_legible,estado,importe_propuesto,cliente_servicio_id&or=(${or.join(',')})&limit=20`);
+  return rows.map(r => ({
+    id: r.id, ref: r.codigo_legible, estado: r.estado,
+    cliente: (clientes[r.cliente_servicio_id] || {}).nombre || '—',
+    importe: r.importe_propuesto,
+  }));
+}
+
+async function pintarTarjetaAccion(d, msg) {
+  msg.textContent = 'resolviendo…';
+  let candidatos;
+  try { candidatos = await resolverIdentificador(d.rpc, d.identificador); }
+  catch (e) {
+    if (e.message === 'SIN_SESION') { msg.innerHTML = 'Para confirmar acciones necesitas <strong>iniciar sesión</strong> (botón "entrar" arriba).'; mostrarLogin(); }
+    else msg.textContent = 'Error al resolver: ' + e.message;
+    return;
+  }
+
+  // Ambigüedad o sin resultado: SIN tarjeta de confirmación, solo texto pidiendo precisión
+  // (nunca se propone un botón "Confirmar" sobre algo que no identifica un único documento).
+  if (candidatos.length === 0) {
+    msg.textContent = `No encuentro ningún documento que case con "${d.identificador}". Dime el número o código exacto.`;
+    return;
+  }
+  if (candidatos.length > 1) {
+    msg.textContent = `Hay ${candidatos.length} coincidencias con "${d.identificador}" (${candidatos.map(c => c.ref).join(', ')}). Precisa el número o código exacto.`;
+    return;
+  }
+  const resuelto = candidatos[0];
+
+  msg.textContent = '';
+  const cont = document.createElement('div'); cont.className = 'tarjeta-accion';
+  const resumen = document.createElement('div'); resumen.textContent = d.resumen || 'Confirmar acción';
+  cont.appendChild(resumen);
+  if (d.rpc === 'cm_marcar_cobrada') {
+    const aviso = document.createElement('div'); aviso.className = 'sub';
+    aviso.textContent = 'El cobro es una estimación tuya, no un dato confirmado por el cliente.';
+    cont.appendChild(aviso);
+  }
+  const imp = resuelto.importe != null ? fmt2(resuelto.importe) + ' €' : '';
+  const linea = document.createElement('div'); linea.className = 'sub';
+  linea.textContent = `${resuelto.ref}${resuelto.cliente ? ' — ' + resuelto.cliente : ''}${imp ? ' — ' + imp : ''} (estado: ${resuelto.estado})`;
+  cont.appendChild(linea);
+  const btns = document.createElement('div'); btns.style.marginTop = '8px';
+  const bConf = document.createElement('button'); bConf.className = 'verde mini'; bConf.textContent = 'Confirmar';
+  const bCanc = document.createElement('button'); bCanc.className = 'gris mini'; bCanc.textContent = 'Cancelar'; bCanc.style.marginLeft = '6px';
+  btns.appendChild(bConf); btns.appendChild(bCanc); cont.appendChild(btns);
+  msg.appendChild(cont);
+  $('chatLog').scrollTop = 1e9;
+
+  bCanc.onclick = () => { btns.remove(); linea.textContent += ' — cancelado'; };
+  bConf.onclick = async () => {
+    bConf.disabled = true; bCanc.disabled = true;
+    linea.textContent = 'ejecutando…';
+    try {
+      const params = d.rpc === 'cm_marcar_cobrada' ? { p_factura_id: resuelto.id, p_fecha: d.fecha || new Date().toISOString().slice(0, 10) }
+        : d.rpc === 'cm_reprogramar_hito' ? { p_hito_id: resuelto.id, p_fecha: d.fecha }
+        : { p_propuesta_id: resuelto.id, p_nota: d.nota || d.resumen };
+      const r = await rpc(d.rpc, params);
+      if (r.ok) {
+        linea.textContent = d.rpc === 'cm_marcar_cobrada' ? `✓ ${r.factura} marcada como cobrada (estimado) — ${r.fecha_cobro}`
+          : d.rpc === 'cm_reprogramar_hito' ? `✓ ${r.hito} reprogramado: ${r.antes} → ${r.ahora}`
+          : `✓ Seguimiento registrado en ${r.propuesta} (${r.fecha})`;
+        cargarBadgeAlertas();
+        if (document.getElementById('pantalla-explorar').classList.contains('activa')) buscar().catch(() => {});
+      } else {
+        linea.textContent = 'No se pudo: ' + r.error;
+      }
+    } catch (e) { linea.textContent = 'Error: ' + e.message; }
+    btns.remove();
+  };
+}
+
+// FASE I: briefing con datos reales (alertas + previsión del próximo mes + propuestas a
+// seguir), en vez del saludo fijo. Disponible también a demanda ("dame el briefing").
+let autoBriefingHecho = false;
+async function cargarBriefing(msg) {
+  try {
+    const alertas = await fetchDetalle('/v_cm_alertas?select=tipo,severidad,referencia,cliente,fecha,importe');
+    const hoy = new Date();
+    const inicio = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1);
+    const fin = new Date(hoy.getFullYear(), hoy.getMonth() + 2, 0);
+    const iso = (dt) => dt.toISOString().slice(0, 10);
+    let prevision = { n: 0, suma: 0 };
+    try {
+      const filas = await rpc('rpt_facturas_previstas', { p_desde: iso(inicio), p_hasta: iso(fin) });
+      prevision = { n: filas.length, suma: filas.reduce((a, r) => a + (+r.importe || 0), 0) };
+    } catch { /* previsión no disponible, el briefing sigue sin ella */ }
+    // Los recuentos se calculan aquí, no se le piden a la IA: contar elementos de una
+    // lista larga es justo el tipo de cifra que un LLM tiende a inventar mal.
+    const propuestasASeguir = alertas.filter(a => a.tipo === 'PROPUESTA_SIN_RESPUESTA');
+    const porTipo = {};
+    alertas.forEach(a => { porTipo[a.tipo] = (porTipo[a.tipo]||0) + 1; });
+    const datos = {
+      n_alertas_total: alertas.length,
+      n_alertas_por_tipo: porTipo,
+      alertas_muestra: alertas.slice(0, 8),
+      prevision_proximo_mes: prevision,
+      n_propuestas_a_seguir: propuestasASeguir.length,
+      propuestas_a_seguir: propuestasASeguir,
+    };
+    // FASE B: cm-qa exige JWT de usuario real, no la clave ANON (evita que cualquiera con
+    // la URL pública queme la cascada de IA). fetchDetalle ya habría lanzado SIN_SESION arriba.
+    const tokBrief = await getToken();
+    const r = await fetch(FUNC_QA, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: ANON, Authorization: `Bearer ${tokBrief}` },
+      body: JSON.stringify({ modo: 'briefing', datos }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    msg.innerHTML = esc(d.respuesta || 'Todo tranquilo por ahora.').replace(/\n/g,'<br>') +
+      `<span class="prov">vía ${esc(d.proveedor||'IA')}</span>`;
+    hablar(d.habla || d.respuesta);
+  } catch (e) {
+    if (e.message === 'SIN_SESION') { msg.innerHTML = 'Para el briefing necesitas <strong>iniciar sesión</strong> (botón "entrar" arriba).'; mostrarLogin(); }
+    else msg.textContent = 'No he podido preparar el briefing: ' + e.message;
+  }
+  teoEstado('reposo');
+}
+
 async function preguntar(texto) {
   texto = (texto || $('chatInput').value).trim();
   if (!texto) return;
   $('chatInput').value = '';
-  addMsg('usuario', texto.replace(/</g,'&lt;'));
+  addMsg('usuario', esc(texto));
   teoEstado('pensando');
   const msg = addMsg('teo', '<em>pensando…</em>');
+  if (/\bbriefing\b/i.test(texto)) { await cargarBriefing(msg); return; }
+  // FASE B: cm-qa exige JWT de usuario real (antes se llamaba con la clave ANON pública,
+  // invocable por cualquiera que conociera la URL — quemaba la cascada de IA sin control).
+  const tok = await getToken();
+  if (!tok) {
+    msg.innerHTML = 'Para preguntar a Kira necesitas <strong>iniciar sesión</strong> (botón "entrar" arriba).';
+    mostrarLogin(); teoEstado('reposo'); return;
+  }
   try {
     const r = await fetch(FUNC_QA, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: ANON, Authorization: `Bearer ${ANON}` },
+      headers: { 'Content-Type': 'application/json', apikey: ANON, Authorization: `Bearer ${tok}` },
       body: JSON.stringify({ pregunta: texto })
     });
     const d = await r.json();
@@ -743,19 +989,21 @@ async function preguntar(texto) {
       const prov = document.createElement('span'); prov.className = 'prov'; prov.textContent = 'vía ' + (d.proveedor||'IA');
       msg.appendChild(prov);
       hablar(d.habla || `${d.titulo}: ${filas.length} resultados.`);
+    } else if (d.tipo === 'accion') {
+      await pintarTarjetaAccion(d, msg);
+      hablar(d.habla || d.resumen);
     } else {
-      msg.innerHTML = (d.respuesta || '(sin respuesta)').replace(/</g,'&lt;').replace(/\n/g,'<br>') +
-        `<span class="prov">vía ${d.proveedor||'IA'}</span>`;
+      msg.innerHTML = esc(d.respuesta || '(sin respuesta)').replace(/\n/g,'<br>') +
+        `<span class="prov">vía ${esc(d.proveedor||'IA')}</span>`;
       hablar(d.habla || d.respuesta);
     }
     teoEstado($('chkVoz').checked ? 'hablando' : 'reposo');
-    if (!$('chkVoz').checked) teoEstado('reposo');
   } catch (e) {
     if (e.message === 'SIN_SESION') {
       msg.innerHTML = 'Para informes de detalle necesitas <strong>iniciar sesión</strong> (botón "entrar" arriba).';
       mostrarLogin();
     } else {
-      msg.innerHTML = '<span class="error">' + e.message.replace(/</g,'&lt;') + '</span>';
+      msg.innerHTML = '<span class="error">' + esc(e.message) + '</span>';
     }
     teoEstado('reposo');
   }
@@ -846,6 +1094,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   ponerEstados();
   initVoz();
+  // E8: la preferencia de voz sobrevive a recargar (antes se marcaba siempre por defecto)
+  const vozGuardada = localStorage.getItem(LS_VOZ);
+  if (vozGuardada !== null) $('chkVoz').checked = vozGuardada === '1';
+  $('chkVoz').addEventListener('change', () => localStorage.setItem(LS_VOZ, $('chkVoz').checked ? '1' : '0'));
   if ('speechSynthesis' in window) speechSynthesis.getVoices(); // precarga de voces
 
   // sesión previa: sesión en claro > desbloqueo del dispositivo > login obligatorio
