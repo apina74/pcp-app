@@ -40,14 +40,18 @@
     <button id="btnInstalar" class="verde mini" style="display:none">⬇ Instalar app</button>
     <button id="btnSesion" class="gris mini">entrar</button>
   </div>
-  <nav class="tabs">
-    <button class="tab activa" data-pantalla="panel">Panel</button>
-    <button class="tab" data-pantalla="explorar">Explorar</button>
-    <button class="tab" data-pantalla="alertas">Alertas <span id="badgeAlertas" class="badge" style="display:none"></span></button>
-    <button class="tab" data-pantalla="subir">Subir</button>
-    <button class="tab" data-pantalla="asistente">Asistente</button>
-  </nav>
 </div>
+
+<div class="shell">
+<nav class="sidebar">
+  <button class="nav-item activa" data-pantalla="panel">🏠 Dashboard</button>
+  <button class="nav-item" data-pantalla="explorar">📊 Explorar</button>
+  <button class="nav-item" data-pantalla="proyectos">🗂 Proyectos</button>
+  <button class="nav-item" data-pantalla="informes">📄 Informes</button>
+  <button class="nav-item" data-pantalla="cliente360">🔎 Cliente 360º</button>
+  <button class="nav-item" data-pantalla="subir">⬆ Subir</button>
+</nav>
+<main class="main">
 
 <!-- ===== Pantalla: Panel (KPIs) ===== -->
 <section id="pantalla-panel" class="pantalla activa">
@@ -165,12 +169,10 @@
     <button class="subtab activa" data-sub="facturas">Facturas</button>
     <button class="subtab" data-sub="propuestas">Propuestas</button>
     <button class="subtab" data-sub="hitos">Hitos</button>
-    <button class="subtab" data-sub="proyectos">Proyectos</button>
   </div>
   <div class="filtros">
     <select id="fEstado"><option value="">— estado —</option></select>
     <input id="fCliente" type="text" placeholder="cliente (nombre o NIF)" style="width:200px">
-    <input id="fResponsable" type="text" placeholder="responsable (proyectos)" style="width:160px">
     <input id="fDesde" type="date"> <span class="sub">a</span> <input id="fHasta" type="date">
     <button id="btnBuscar" class="azul">Buscar</button>
     <span class="spacer" style="flex:1"></span>
@@ -180,13 +182,47 @@
   <div id="expTabla" class="tabla-scroll"></div>
 </section>
 
-<!-- ===== Pantalla: Alertas ===== -->
-<section id="pantalla-alertas" class="pantalla">
-  <div class="top-row" style="margin-bottom:10px">
-    <button id="btnAlertas" class="azul">Actualizar alertas</button>
-    <span id="alStatus" class="status"></span>
+<!-- ===== Pantalla: Proyectos (Kanban, FASE F) ===== -->
+<section id="pantalla-proyectos" class="pantalla">
+  <div class="filtros">
+    <select id="pEstado"><option value="">— estado —</option></select>
+    <input id="pResponsable" type="text" placeholder="responsable (owner o manager)" style="width:200px">
+    <button id="btnProyectos" class="azul">Buscar</button>
+    <span class="spacer" style="flex:1"></span>
+    <span id="pStatus" class="status"></span>
   </div>
-  <div id="alTabla" class="tabla-scroll"></div>
+  <div id="proyectosKanban" class="kanban"></div>
+</section>
+
+<!-- ===== Pantalla: Informes (FASE F) ===== -->
+<section id="pantalla-informes" class="pantalla">
+  <h2 class="section-title">Informes — generar</h2>
+  <input id="infPregunta" type="text" style="width:100%" placeholder="Describe el informe que necesitas… (ej. facturas previstas de agosto por cliente)">
+  <div style="margin-top:8px;display:flex;gap:8px">
+    <button id="btnInfGenerar" class="azul">Generar</button>
+    <button id="btnInfRefinar" class="gris" disabled>Refinar</button>
+  </div>
+  <div id="infSqlBox" class="sql-box" style="display:none"></div>
+  <div id="infTitulo" class="sub" style="margin-top:6px"></div>
+  <div id="infTabla" class="tabla-scroll" style="margin:10px 0"></div>
+  <div id="infAcciones" style="display:none;gap:8px;margin-bottom:22px">
+    <button id="btnInfGuardar" class="verde">Guardar informe</button>
+    <button id="btnInfPdf" class="gris">Exportar PDF</button>
+    <button id="btnInfExcel" class="gris">Exportar Excel</button>
+  </div>
+  <span id="infStatus" class="status"></span>
+
+  <h2 class="section-title">Informes guardados</h2>
+  <div id="infGuardados"></div>
+</section>
+
+<!-- ===== Pantalla: Cliente 360º (FASE F) ===== -->
+<section id="pantalla-cliente360" class="pantalla">
+  <div class="c360-buscador">
+    <input id="c360Buscar" type="text" placeholder="Nombre o NIF del cliente…">
+    <button id="btnC360Buscar" class="azul">Buscar</button>
+  </div>
+  <div id="c360Resultado"></div>
 </section>
 
 <!-- ===== Pantalla: Subir ===== -->
@@ -213,8 +249,19 @@
   <div id="bandejaLista" style="margin-top:8px"></div>
 </section>
 
-<!-- ===== Pantalla: Asistente ===== -->
-<section id="pantalla-asistente" class="pantalla">
+</main>
+</div>
+
+<!-- ===== Kira flotante (FASE F: antes pestaña Asistente a pantalla completa) ===== -->
+<div class="kira-fab" id="kiraFab" role="button" tabindex="0" aria-label="Abrir chat de Kira">
+  K<span id="badgeAlertas" class="badge-alertas" style="display:none"></span>
+</div>
+<div class="kira-panel" id="kiraPanel">
+  <div class="kira-panel-header">
+    <strong>Kira</strong>
+    <span class="spacer" style="flex:1"></span>
+    <button class="mini gris" id="kiraCerrar">✕</button>
+  </div>
   <div class="asistente-grid">
     <div class="mascota-col">
       <!-- Kira: avatar anime-cyberpunk del PCP (personaje propio, estética inspirada en GitS) -->
@@ -336,9 +383,12 @@
       </div>
     </div>
   </div>
-</section>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js" integrity="sha384-Xl/CUCfJbzsngMp0CFxkmF0VW/8C160IsGujqeQlIhaGxKz2+JsIGORFqtCPeldF" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
 <script src="./app.js"></script>
 </body>
 </html>

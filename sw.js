@@ -2,7 +2,7 @@
 // Los datos (vistas v_cm_* y Q&A) NUNCA se cachean: siempre se piden frescos a la red.
 // v18: navegación RED-PRIMERO (las versiones nuevas entran a la primera apertura;
 // la caché solo responde sin conexión) + instalación saltándose la caché HTTP.
-const CACHE = 'pcp-v20';
+const CACHE = 'pcp-v21';
 const ASSETS = [
   './index.html',
   './styles.css',
@@ -11,7 +11,10 @@ const ASSETS = [
   './icon.svg',
   './icon-192.png',
   './icon-512.png',
-  'https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js'
+  'https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js',
+  'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js',
+  'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js',
+  'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'
 ];
 
 self.addEventListener('install', (e) => {

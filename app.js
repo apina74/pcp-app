@@ -241,22 +241,32 @@ function refrescarSesionUI() {
 }
 
 // ============================================================
-// PESTAÑAS
+// NAVEGACIÓN (sidebar, FASE F — antes pestañas superiores)
 // ============================================================
-document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
-  document.querySelectorAll('.tab').forEach(x => x.classList.remove('activa'));
+document.querySelectorAll('.nav-item[data-pantalla]').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('activa'));
   document.querySelectorAll('.pantalla').forEach(x => x.classList.remove('activa'));
   t.classList.add('activa');
   $('pantalla-' + t.dataset.pantalla).classList.add('activa');
-  // Toda la app queda tras el login (decisión 2026-07-05): cualquier pestaña exige sesión.
+  // Toda la app queda tras el login (decisión 2026-07-05): cualquier pantalla exige sesión.
   if (!ses) mostrarLogin();
-  if (t.dataset.pantalla === 'alertas' && ses) cargarAlertas();
-  if (t.dataset.pantalla === 'asistente' && ses && !autoBriefingHecho) {
+  if (t.dataset.pantalla === 'proyectos' && ses) cargarProyectos();
+  if (t.dataset.pantalla === 'informes' && ses) cargarInformesGuardados();
+}));
+
+// Kira flotante (FASE F: antes pestaña Asistente a pantalla completa)
+function abrirKira() {
+  $('kiraPanel').classList.add('abierto');
+  if (!ses) { mostrarLogin(); return; }
+  if (!autoBriefingHecho) {
     autoBriefingHecho = true;
     $('chatLog').innerHTML = '';
     cargarBriefing(addMsg('teo', '<em>preparando briefing…</em>'));
   }
-}));
+}
+$('kiraFab').addEventListener('click', abrirKira);
+$('kiraFab').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrirKira(); } });
+$('kiraCerrar').addEventListener('click', () => $('kiraPanel').classList.remove('abierto'));
 
 // ============================================================
 // PANEL (KPIs con clave pública — funciona sin sesión)
@@ -512,7 +522,6 @@ async function buscar() {
   try {
     await cargarClientes(); await cargarUsuarios();
     const est = $('fEstado').value, cli = $('fCliente').value.trim().toLowerCase();
-    const resp = $('fResponsable').value.trim().toLowerCase();
     const d1 = $('fDesde').value, d2 = $('fHasta').value;
     let filas = [], cols = [];
     if (sub === 'facturas') {
@@ -576,30 +585,6 @@ async function buscar() {
         { k:'_acc', t:'', html:true, f:(v,r)=> ['previsto','facturable'].includes(r.estado)
             ? `<button class="azul mini" data-accion="mover-hito" data-id="${r.id}" data-ref="${esc(r.codigo_legible||'')}" data-fecha="${esc(r.fecha_prevista||'')}">📅 mover</button>` : '' }
       ];
-    } else {
-      let q = '/proyecto?select=id,codigo_legible,estado,fecha_inicio,fecha_cierre_estimada,cliente_facturacion_id,client_owner_id,manager_id&order=actualizado_en.desc&limit=500';
-      if (est) q += `&estado=eq.${est}`;
-      if (d1) q += `&fecha_inicio=gte.${d1}`; if (d2) q += `&fecha_inicio=lte.${d2}`;
-      let rows = await fetchDetalle(q);
-      const lineas = await fetchDetalle('/proyecto_linea?select=proyecto_id,importe&limit=1000');
-      const importePorProyecto = {};
-      lineas.forEach(l => { importePorProyecto[l.proyecto_id] = (importePorProyecto[l.proyecto_id]||0) + (+l.importe||0); });
-      rows.forEach(r => {
-        const c = clientes[r.cliente_facturacion_id]||{};
-        r.cliente = c.nombre||'—'; r._nif = c.nif||'';
-        r.owner = (usuarios[r.client_owner_id]||{}).nombre || '—';
-        r.manager = (usuarios[r.manager_id]||{}).nombre || '—';
-        r.importe = importePorProyecto[r.id] || 0;
-      });
-      if (resp) rows = rows.filter(r => (r.owner||'').toLowerCase().includes(resp) || (r.manager||'').toLowerCase().includes(resp));
-      filas = rows;
-      cols = [
-        { k:'codigo_legible', t:'Código' }, { k:'cliente', t:'Cliente' },
-        { k:'estado', t:'Estado', pill:true },
-        { k:'fecha_inicio', t:'Inicio' }, { k:'fecha_cierre_estimada', t:'Cierre est.' },
-        { k:'owner', t:'Owner' }, { k:'manager', t:'Manager' },
-        { k:'importe', t:'Importe €', num:true }
-      ];
     }
     ultimaFilas = filas; ultimaCols = cols;
     $('expTabla').innerHTML = tablaHtml(filas, cols);
@@ -607,6 +592,47 @@ async function buscar() {
       + (clientesTruncado ? ' — ⚠ lista de clientes limitada a 1000, el filtro por cliente puede estar incompleto' : '');
   } catch (e) {
     if (e.message === 'SIN_SESION') { mostrarLogin(); st.textContent = 'inicia sesión para ver el detalle'; }
+    else { st.textContent = e.message; st.className = 'status error'; }
+  }
+}
+
+// ============================================================
+// PROYECTOS (Kanban, FASE F — antes subpestaña de Explorar)
+// ============================================================
+async function cargarProyectos() {
+  const st = $('pStatus'); st.textContent = 'buscando…'; st.className = 'status';
+  try {
+    await cargarClientes(); await cargarUsuarios();
+    const est = $('pEstado').value, resp = $('pResponsable').value.trim().toLowerCase();
+    let q = '/proyecto?select=id,codigo_legible,estado,fecha_inicio,fecha_cierre_estimada,cliente_facturacion_id,client_owner_id,manager_id&order=actualizado_en.desc&limit=500';
+    if (est) q += `&estado=eq.${est}`;
+    let rows = await fetchDetalle(q);
+    const lineas = await fetchDetalle('/proyecto_linea?select=proyecto_id,importe&limit=1000');
+    const importePorProyecto = {};
+    lineas.forEach(l => { importePorProyecto[l.proyecto_id] = (importePorProyecto[l.proyecto_id]||0) + (+l.importe||0); });
+    rows.forEach(r => {
+      const c = clientes[r.cliente_facturacion_id]||{};
+      r.cliente = c.nombre||'—';
+      r.owner = (usuarios[r.client_owner_id]||{}).nombre || '—';
+      r.manager = (usuarios[r.manager_id]||{}).nombre || '—';
+      r.importe = importePorProyecto[r.id] || 0;
+    });
+    if (resp) rows = rows.filter(r => (r.owner||'').toLowerCase().includes(resp) || (r.manager||'').toLowerCase().includes(resp));
+    const porEstado = {};
+    ESTADOS.proyectos.forEach(e => porEstado[e] = []);
+    rows.forEach(r => { (porEstado[r.estado] || (porEstado[r.estado] = [])).push(r); });
+    $('proyectosKanban').innerHTML = Object.entries(porEstado).map(([estado, ps]) => `
+      <div class="kanban-col"><h4>${esc(estado)} (${ps.length})</h4>${ps.map(p => `
+        <div class="kanban-card">
+          <span class="cod">${esc(p.codigo_legible)}</span>
+          ${esc(p.cliente)}<br>
+          <span class="imp">${fmt0(p.importe)} €</span>
+          <div class="resp">${esc(p.owner)}${p.manager !== '—' ? ' · ' + esc(p.manager) : ''}</div>
+        </div>`).join('')}
+      </div>`).join('');
+    st.textContent = `${rows.length} proyecto(s)`;
+  } catch (e) {
+    if (e.message === 'SIN_SESION') { mostrarLogin(); st.textContent = 'inicia sesión'; }
     else { st.textContent = e.message; st.className = 'status error'; }
   }
 }
@@ -691,30 +717,190 @@ function exportarCsv() {
 }
 
 // ============================================================
-// ALERTAS
+// BADGE DE ALERTAS (en Kira flotante; el detalle lo da el briefing del chat)
 // ============================================================
-async function cargarAlertas() {
-  const st = $('alStatus'); st.textContent = 'cargando…';
-  try {
-    const rows = await fetchDetalle('/v_cm_alertas?select=*&order=severidad.asc,fecha.asc');
-    $('alTabla').innerHTML = tablaHtml(rows, [
-      { k:'severidad', t:'Nivel', pill:true }, { k:'tipo', t:'Tipo' },
-      { k:'referencia', t:'Referencia' }, { k:'cliente', t:'Cliente' },
-      { k:'fecha', t:'Fecha' }, { k:'importe', t:'Importe €', num:true }, { k:'detalle', t:'Detalle' }
-    ]);
-    st.textContent = `${rows.length} alerta(s)`;
-    ponerBadge(rows.length);
-  } catch (e) {
-    if (e.message === 'SIN_SESION') { mostrarLogin(); st.textContent = 'inicia sesión'; }
-    else st.textContent = e.message;
-  }
-}
 function ponerBadge(n) {
   const b = $('badgeAlertas');
   if (n > 0) { b.textContent = n; b.style.display = 'inline-block'; } else b.style.display = 'none';
 }
 async function cargarBadgeAlertas() {
   try { const rows = await fetchDetalle('/v_cm_alertas?select=tipo'); ponerBadge(rows.length); } catch {}
+}
+
+// Columnas automáticas para resultados de informe (catálogo o SQL libre): mismo criterio
+// en las dos superficies que muestran filas arbitrarias (chat de Kira e Informes).
+function colsAuto(filas) {
+  return filas.length ? Object.keys(filas[0]).map(k => ({
+    k, t: k.replace(/^p?_/,'').replace(/_/g,' '),
+    num: typeof filas[0][k] === 'number' && !['n','orden'].includes(k)
+  })) : [];
+}
+
+// ============================================================
+// CLIENTE 360º (FASE F): rpt_cliente_resumen ya está en el catálogo clásico de cm-qa
+// ("resumen del cliente X" desde el chat) — aquí se añade la vista dedicada y una tarjeta
+// compacta reutilizable en ambos sitios. cobrado_fy es una ESTIMACIÓN (cm_marcar_cobrada
+// registra la fecha de cobro a mano, no un dato confirmado por el cliente).
+// ============================================================
+function renderClienteMini(r) {
+  return `<div class="cliente-mini">
+    <div class="nombre">${esc(r.cliente)}</div>
+    <div class="fila"><span>Facturado FY</span><span>${fmt0(r.facturado_fy)} €</span></div>
+    <div class="fila"><span>Cobrado FY (estimación)</span><span>${fmt0(r.cobrado_fy)} €</span></div>
+    <div class="fila"><span>Pendiente de cobro</span><span>${fmt0(r.pendiente_cobro)} €</span></div>
+    <div class="fila"><span>Propuestas abiertas</span><span>${r.propuestas_abiertas}</span></div>
+  </div>`;
+}
+async function buscarCliente360(nombre) {
+  const cont = $('c360Resultado'); cont.innerHTML = '<span class="status">buscando…</span>';
+  try {
+    const filas = await rpc('rpt_cliente_resumen', { p_cliente: nombre });
+    if (!filas.length) { cont.innerHTML = `<span class="status">Sin coincidencias para "${esc(nombre)}".</span>`; return; }
+    if (filas.length > 1) {
+      cont.innerHTML = '<div class="sub" style="margin-bottom:8px">Varias coincidencias, elige una:</div>' +
+        filas.map(r => `<button class="mini gris" data-c360="${esc(r.cliente)}" style="margin:0 6px 6px 0">${esc(r.cliente)}</button>`).join('');
+      return;
+    }
+    await pintarCliente360(filas[0]);
+  } catch (e) {
+    if (e.message === 'SIN_SESION') { mostrarLogin(); cont.innerHTML = ''; }
+    else cont.innerHTML = `<span class="status error">${esc(e.message)}</span>`;
+  }
+}
+$('c360Resultado').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-c360]');
+  if (b) buscarCliente360(b.dataset.c360);
+});
+async function pintarCliente360(r) {
+  const cont = $('c360Resultado');
+  cont.innerHTML = `
+    <div class="c360-header"><div>
+      <h2 style="margin:0;font-family:'Orbitron','Rajdhani',sans-serif;font-size:18px;color:var(--navy-800)">${esc(r.cliente)}</h2>
+      <div class="sub">NIF ${esc(r.nif || '—')}</div>
+    </div></div>
+    <div class="c360-kpis">
+      <div class="c360-kpi"><div class="label">Facturado FY</div><div class="valor">${fmt0(r.facturado_fy)} €</div></div>
+      <div class="c360-kpi"><div class="label">Cobrado FY</div><div class="valor">${fmt0(r.cobrado_fy)} €</div><div class="nota-estim">estimación</div></div>
+      <div class="c360-kpi"><div class="label">Pendiente de cobro</div><div class="valor">${fmt0(r.pendiente_cobro)} €</div></div>
+      <div class="c360-kpi"><div class="label">Propuestas abiertas</div><div class="valor">${r.propuestas_abiertas}</div></div>
+    </div>
+    <h2 class="section-title">Cronología</h2>
+    <div id="c360Timeline"><span class="status">cargando…</span></div>`;
+  await cargarTimelineCliente360(r.cliente);
+}
+async function cargarTimelineCliente360(nombreCliente) {
+  try {
+    await cargarClientes();
+    const id = Object.entries(clientes).find(([, c]) => (c.nombre || '').toLowerCase() === nombreCliente.toLowerCase())?.[0];
+    if (!id) { $('c360Timeline').innerHTML = '<span class="status">sin cronología (cliente no resuelto)</span>'; return; }
+    const [facturas, propuestas] = await Promise.all([
+      fetchDetalle(`/factura?select=numero_auxadi,codigo_legible,fecha_emision,estado,total&cliente_facturacion_id=eq.${id}&order=fecha_emision.desc&limit=5`),
+      fetchDetalle(`/propuesta?select=codigo_legible,estado,fecha_envio,fecha_aceptacion,importe_propuesto&or=(cliente_servicio_id.eq.${id},cliente_facturacion_id.eq.${id})&order=creado_en.desc&limit=5`),
+    ]);
+    const items = [
+      ...facturas.map(f => ({ fecha: f.fecha_emision, texto: `Factura ${f.numero_auxadi || f.codigo_legible} ${f.estado.toLowerCase()} (${fmt2(f.total)} €)` })),
+      ...propuestas.map(p => ({ fecha: p.fecha_aceptacion || p.fecha_envio, texto: `Propuesta ${p.codigo_legible} — ${p.estado.toLowerCase().replace(/_/g,' ')} (${fmt2(p.importe_propuesto)} €)` })),
+    ].filter(i => i.fecha).sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, 8);
+    $('c360Timeline').innerHTML = items.length
+      ? '<div class="timeline">' + items.map(i => `<div class="item"><span class="fecha">${esc(i.fecha)}</span> — ${esc(i.texto)}</div>`).join('') + '</div>'
+      : '<span class="status">sin movimientos recientes</span>';
+  } catch (e) { $('c360Timeline').innerHTML = `<span class="status error">${esc(e.message)}</span>`; }
+}
+
+// ============================================================
+// INFORMES (FASE F): generar/refinar con Kira (modo informe_libre), ejecutar vía
+// cm_ejecutar_informe (candado + solo lectura, ya construido en F1), guardar/exportar.
+// ============================================================
+let infSql = '', infFilas = [], infCols = [];
+async function generarInforme(refinar) {
+  const pregunta = $('infPregunta').value.trim();
+  if (!pregunta) return;
+  const st = $('infStatus'); st.className = 'status'; st.textContent = refinar ? 'refinando…' : 'generando…';
+  try {
+    const tok = await getToken();
+    if (!tok) { mostrarLogin(); st.textContent = 'inicia sesión'; return; }
+    const r = await fetch(FUNC_QA, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: ANON, Authorization: `Bearer ${tok}` },
+      body: JSON.stringify({ modo: 'informe_libre', pregunta, sql_actual: refinar ? infSql : '' }),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    infSql = d.sql || '';
+    $('infSqlBox').style.display = 'block'; $('infSqlBox').textContent = infSql;
+    $('infTitulo').textContent = d.titulo || '';
+    $('btnInfRefinar').disabled = false;
+    st.textContent = `vía ${d.proveedor || 'IA'}`;
+    await ejecutarInformeActual();
+  } catch (e) { st.className = 'status error'; st.textContent = e.message; }
+}
+async function ejecutarInformeActual() {
+  if (!infSql) return;
+  const st = $('infStatus');
+  try {
+    infFilas = await rpc('cm_ejecutar_informe', { p_sql: infSql });
+    infCols = colsAuto(infFilas);
+    $('infTabla').innerHTML = tablaHtml(infFilas, infCols);
+    $('infAcciones').style.display = 'flex';
+    st.textContent = `${infFilas.length} fila(s)`;
+  } catch (e) { st.className = 'status error'; st.textContent = e.message; }
+}
+async function guardarInformeActual() {
+  if (!infSql) return;
+  const nombre = prompt('Nombre para guardar este informe:', $('infTitulo').textContent || $('infPregunta').value);
+  if (!nombre) return;
+  try {
+    await fetchDetalle('/cm_informes_guardados', {
+      method: 'POST',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify({ nombre, descripcion: $('infPregunta').value, sql_informe: infSql, config: {} }),
+    });
+    $('infStatus').textContent = '✓ informe guardado';
+    cargarInformesGuardados();
+  } catch (e) { $('infStatus').className = 'status error'; $('infStatus').textContent = e.message; }
+}
+async function cargarInformesGuardados() {
+  try {
+    const rows = await fetchDetalle('/cm_informes_guardados?select=id,nombre,descripcion,sql_informe,creado_en&order=creado_en.desc');
+    $('infGuardados').innerHTML = rows.length ? rows.map(r => `
+      <div class="informe-guardado">
+        <span class="nombre">${esc(r.nombre)} <span class="fecha">— ${esc((r.creado_en||'').slice(0,10))}</span></span>
+        <span style="display:flex;gap:6px">
+          <button class="mini" data-inf-run="${r.id}" data-inf-sql="${esc(r.sql_informe)}" data-inf-nombre="${esc(r.nombre)}">Ejecutar</button>
+          <button class="mini gris" data-inf-del="${r.id}">Borrar</button>
+        </span>
+      </div>`).join('') : '<span class="status">sin informes guardados</span>';
+  } catch (e) { if (e.message !== 'SIN_SESION') $('infGuardados').innerHTML = `<span class="status error">${esc(e.message)}</span>`; }
+}
+$('infGuardados').addEventListener('click', async (e) => {
+  const bRun = e.target.closest('button[data-inf-run]');
+  const bDel = e.target.closest('button[data-inf-del]');
+  if (bRun) {
+    infSql = bRun.dataset.infSql;
+    $('infPregunta').value = bRun.dataset.infNombre;
+    $('infSqlBox').style.display = 'block'; $('infSqlBox').textContent = infSql;
+    $('infTitulo').textContent = bRun.dataset.infNombre;
+    $('btnInfRefinar').disabled = false;
+    await ejecutarInformeActual();
+  } else if (bDel) {
+    if (!confirm('¿Borrar este informe guardado?')) return;
+    try { await fetchDetalle(`/cm_informes_guardados?id=eq.${bDel.dataset.infDel}`, { method: 'DELETE' }); cargarInformesGuardados(); }
+    catch (e) { alert('Error: ' + e.message); }
+  }
+});
+function exportarInformePdf() {
+  if (!infFilas.length) { alert('Ejecuta un informe primero.'); return; }
+  const doc = new window.jspdf.jsPDF();
+  doc.text($('infTitulo').textContent || 'Informe PCP', 14, 14);
+  doc.autoTable({ startY: 20, head: [infCols.map(c => c.t)], body: infFilas.map(r => infCols.map(c => r[c.k] ?? '')) });
+  doc.save(`informe_${new Date().toISOString().slice(0,10)}.pdf`);
+}
+function exportarInformeExcel() {
+  if (!infFilas.length) { alert('Ejecuta un informe primero.'); return; }
+  const ws = window.XLSX.utils.json_to_sheet(infFilas);
+  const wb = window.XLSX.utils.book_new();
+  window.XLSX.utils.book_append_sheet(wb, ws, 'Informe');
+  window.XLSX.writeFile(wb, `informe_${new Date().toISOString().slice(0,10)}.xlsx`);
 }
 
 // ============================================================
@@ -979,12 +1165,13 @@ async function preguntar(texto) {
         Object.entries(d.params || {}).forEach(([k,v]) => { if (v !== null && v !== '') params[k] = v; });
         filas = await rpc(d.rpc, params);
       }
-      const cols = filas.length ? Object.keys(filas[0]).map(k => ({
-        k, t: k.replace(/^p?_/,'').replace(/_/g,' '),
-        num: typeof filas[0][k] === 'number' && !['n','orden'].includes(k)
-      })) : [];
-      const cont = document.createElement('div'); cont.className = 'tabla-scroll';
-      cont.innerHTML = tablaHtml(filas, cols);
+      const cont = document.createElement('div'); cont.style.marginTop = '6px';
+      if (d.rpc === 'rpt_cliente_resumen' && filas.length === 1) {
+        cont.innerHTML = renderClienteMini(filas[0]);
+      } else {
+        cont.className = 'tabla-scroll';
+        cont.innerHTML = tablaHtml(filas, colsAuto(filas));
+      }
       msg.appendChild(cont);
       const prov = document.createElement('span'); prov.className = 'prov'; prov.textContent = 'vía ' + (d.proveedor||'IA');
       msg.appendChild(prov);
@@ -1080,7 +1267,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('btnBuscar').onclick = buscar;
   $('fCliente').addEventListener('keydown', e => { if (e.key === 'Enter') buscar(); });
   $('btnCsv').onclick = exportarCsv;
-  $('btnAlertas').onclick = cargarAlertas;
+  $('pEstado').innerHTML = '<option value="">— estado —</option>' + ESTADOS.proyectos.map(e => `<option>${e}</option>`).join('');
+  $('btnProyectos').onclick = cargarProyectos;
   $('btnElegir').onclick = () => $('inputFicheros').click();
   $('inputFicheros').addEventListener('change', e => subirFicheros(e.target.files));
   const zona = $('zonaSubir');
@@ -1088,6 +1276,13 @@ document.addEventListener('DOMContentLoaded', () => {
   zona.addEventListener('dragleave', () => zona.classList.remove('arrastre'));
   zona.addEventListener('drop', e => { e.preventDefault(); zona.classList.remove('arrastre'); subirFicheros(e.dataTransfer.files); });
   $('btnVerBandeja').onclick = verBandeja;
+  $('btnInfGenerar').onclick = () => generarInforme(false);
+  $('btnInfRefinar').onclick = () => generarInforme(true);
+  $('btnInfGuardar').onclick = guardarInformeActual;
+  $('btnInfPdf').onclick = exportarInformePdf;
+  $('btnInfExcel').onclick = exportarInformeExcel;
+  $('btnC360Buscar').onclick = () => buscarCliente360($('c360Buscar').value.trim());
+  $('c360Buscar').addEventListener('keydown', e => { if (e.key === 'Enter') buscarCliente360($('c360Buscar').value.trim()); });
   $('btnEnviar').onclick = () => preguntar();
   $('chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') preguntar(); });
   $('btnMic').onclick = () => { if (rec) { try { rec.start(); } catch {} } };
