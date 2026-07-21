@@ -252,6 +252,7 @@ document.querySelectorAll('.nav-item[data-pantalla]').forEach(t => t.addEventLis
   if (!ses) mostrarLogin();
   if (t.dataset.pantalla === 'proyectos' && ses) cargarProyectos();
   if (t.dataset.pantalla === 'informes' && ses) cargarInformesGuardados();
+  if (t.dataset.pantalla === 'subir' && ses) cargarIngesta();
 }));
 
 // Kira flotante (FASE F: antes pestaña Asistente a pantalla completa)
@@ -948,6 +949,69 @@ async function verBandeja() {
 }
 
 // ============================================================
+// INGESTA SERVER-SIDE (FASE G): bandeja de propuestas pendientes de revisar.
+// La Edge Function cm-ingesta nunca toca `factura`; aquí es donde Antonio confirma
+// (cm_confirmar_ingesta_factura) o descarta (cm_descartar_ingesta).
+// ============================================================
+const CONFIANZA_TXT = {
+  nif_exacto: 'NIF exacto',
+  nif_raiz: 'raíz del NIF (sufijo distinto)',
+  denominacion: 'solo por nombre',
+};
+async function cargarIngesta() {
+  const st = $('ingStatus');
+  try {
+    const filas = await fetchDetalle('/v_cm_ingesta_pendiente?select=*');
+    const n = filas.length;
+    const b = $('ingBadge');
+    if (n) { b.textContent = n; b.style.display = 'inline-block'; } else b.style.display = 'none';
+    $('ingLista').innerHTML = n ? filas.map(f => {
+      const imp = f.base_imponible ?? f.total;
+      const cab = `${esc(f.numero_auxadi || '(sin número)')} · ${esc(f.fecha_emision || '—')} · ${imp != null ? fmt2(imp) + ' €' : '—'}`;
+      if (f.casado) {
+        return `<div class="informe-guardado">
+          <span class="nombre">${cab}<br>
+            <span class="fecha">casa con ${esc(f.placeholder)} — ${esc(f.cliente)} · confianza: ${esc(CONFIANZA_TXT[f.confianza] || f.confianza)}</span>
+          </span>
+          <span style="display:flex;gap:6px">
+            <button class="mini verde" data-ing-ok="${f.id}">Confirmar</button>
+            <button class="mini gris" data-ing-no="${f.id}">Descartar</button>
+          </span></div>`;
+      }
+      return `<div class="informe-guardado" style="border-color:rgba(255,214,10,.4)">
+        <span class="nombre">${cab}<br>
+          <span class="fecha" style="color:var(--ambar)">⚠ ${esc(f.motivo_duda || 'sin casar')}</span>
+        </span>
+        <span style="display:flex;gap:6px">
+          <button class="mini gris" data-ing-no="${f.id}">Descartar</button>
+        </span></div>`;
+    }).join('') : '<span class="status">nada pendiente de revisar</span>';
+    st.textContent = n ? `${n} pendiente(s)` : '';
+    st.className = 'status';
+  } catch (e) {
+    if (e.message !== 'SIN_SESION') { st.textContent = e.message; st.className = 'status error'; }
+  }
+}
+$('ingLista').addEventListener('click', async (e) => {
+  const ok = e.target.closest('button[data-ing-ok]');
+  const no = e.target.closest('button[data-ing-no]');
+  if (ok) {
+    if (!confirm('¿Confirmar? Se marcará la factura como ENVIADA con los datos del PDF.')) return;
+    try {
+      const r = await rpc('cm_confirmar_ingesta_factura', { p_ingesta_id: ok.dataset.ingOk });
+      alert(r.ok ? `✓ ${r.factura} actualizada con la factura ${r.numero_auxadi}` : `No se pudo: ${r.error}`);
+      cargarIngesta();
+    } catch (err) { alert('Error: ' + err.message); }
+  } else if (no) {
+    const motivo = prompt('¿Por qué lo descartas? (opcional)') || null;
+    try {
+      await rpc('cm_descartar_ingesta', { p_ingesta_id: no.dataset.ingNo, p_motivo: motivo });
+      cargarIngesta();
+    } catch (err) { alert('Error: ' + err.message); }
+  }
+});
+
+// ============================================================
 // ASISTENTE: chat + informes + voz + Teo
 // ============================================================
 // En SVG, className es de solo lectura: hay que usar setAttribute.
@@ -1276,6 +1340,7 @@ document.addEventListener('DOMContentLoaded', () => {
   zona.addEventListener('dragleave', () => zona.classList.remove('arrastre'));
   zona.addEventListener('drop', e => { e.preventDefault(); zona.classList.remove('arrastre'); subirFicheros(e.dataTransfer.files); });
   $('btnVerBandeja').onclick = verBandeja;
+  $('btnIngRefrescar').onclick = cargarIngesta;
   $('btnInfGenerar').onclick = () => generarInforme(false);
   $('btnInfRefinar').onclick = () => generarInforme(true);
   $('btnInfGuardar').onclick = guardarInformeActual;
