@@ -63,6 +63,13 @@ async function persistirSesion() {
   if (!ses) return;
   if (bioActivada()) {
     if (bioKey) await bioGuardarCifrado(ses.refresh_token);
+    else {
+      // Modo barrera (sin PRF): el refresh vive en claro dentro de LS_BIO_DATA — hay que
+      // mantenerlo al día también cuando se entra por contraseña, o caduca y el
+      // desbloqueo muere (mismo fallo que el caso PRF, ver bioRevincular).
+      const data = JSON.parse(localStorage.getItem(LS_BIO_DATA) || '{}');
+      if (data.plano) localStorage.setItem(LS_BIO_DATA, JSON.stringify({ plano: ses.refresh_token }));
+    }
     localStorage.removeItem(LS_SES); // con desbloqueo activo no se guarda sesión en claro
   } else {
     localStorage.setItem(LS_SES, JSON.stringify(ses));
@@ -193,7 +200,24 @@ async function bioDesbloquear() {
     ocultarLogin(); refrescarSesionUI();
     cargarPanel();
   } catch (e) {
-    $('loginError').textContent = 'No se pudo desbloquear: ' + e.message;
+    $('loginError').textContent = 'No se pudo desbloquear: ' + e.message +
+      (e.message === 'sesión caducada' ? ' — entra con la contraseña y el desbloqueo se re-vinculará solo.' : '');
+  }
+}
+
+// Tras entrar con la contraseña de RESPALDO estando el desbloqueo activado: el refresh
+// token cifrado quedó obsoleto (caducó o Supabase lo rotó) y Hello fallaba con "sesión
+// caducada" PARA SIEMPRE — entrar por contraseña no lo reparaba porque sin assertion no
+// hay bioKey con la que re-cifrar (visto 2026-07-22 en el preview). Una assertion
+// re-deriva la clave PRF y deja cifrado el token vigente.
+async function bioRevincular() {
+  const cfg = JSON.parse(localStorage.getItem(LS_BIO) || 'null');
+  if (!cfg || !cfg.prf || bioKey || !ses) return;
+  try {
+    const out = await bioAssertion();
+    if (out) { bioKey = await claveDesdePrf(out); await bioGuardarCifrado(ses.refresh_token); }
+  } catch {
+    alert('El desbloqueo del dispositivo sigue sin re-vincularse: la próxima entrada volverá a pedir contraseña. Se reintentará tras el siguiente login.');
   }
 }
 
@@ -232,7 +256,7 @@ function refrescarSesionUI() {
     info.textContent = emailDe(ses.access_token) + (bioActivada() ? ' · 🔒' : '');
     btn.textContent = 'salir';
     $('btnBioActivar').style.display = (bioActivada() || !window.PublicKeyCredential) ? 'none' : 'inline-block';
-    cargarClientes(); cargarBadgeAlertas();
+    cargarClientes(); cargarBadgeAlertas(); comprobarAvisos();
   } else {
     info.textContent = 'sin sesión (solo panel)';
     btn.textContent = 'entrar';
@@ -252,7 +276,7 @@ document.querySelectorAll('.nav-item[data-pantalla]').forEach(t => t.addEventLis
   if (!ses) mostrarLogin();
   if (t.dataset.pantalla === 'proyectos' && ses) cargarProyectos();
   if (t.dataset.pantalla === 'informes' && ses) cargarInformesGuardados();
-  if (t.dataset.pantalla === 'subir' && ses) cargarIngesta();
+  if (t.dataset.pantalla === 'subir' && ses) { cargarIngesta(); cargarIngestaProp(); }
 }));
 
 // Kira flotante (FASE F: antes pestaña Asistente a pantalla completa)
@@ -1012,6 +1036,238 @@ $('ingLista').addEventListener('click', async (e) => {
 });
 
 // ============================================================
+// INGESTA DE PROPUESTAS (FASE G.4)
+// ============================================================
+// Diferencia clave con las facturas: una factura se CASA contra un placeholder que ya existe,
+// así que basta confirmar/descartar. Una propuesta es un ALTA desde cero, y la extracción
+// acierta el total en ~3 de cada 4 documentos: por eso cliente, fecha, importe y líneas
+// llegan EDITABLES y lo que se manda a la RPC es lo que quede en pantalla, no lo extraído.
+// Un mismo documento puede proponer VARIAS altas (bloques), que se confirman una a una.
+
+const CONFIANZA_CLI = {
+  nif_exacto: 'NIF exacto',
+  denominacion: 'por denominación',
+  tokens: 'por nombre aproximado',
+  pie_legal: '⚠ solo aparece en el pie legal',
+};
+
+let CAT = null;   // catálogos (tipo_servicio + entidades), se cargan una vez
+async function catalogos() {
+  if (CAT) return CAT;
+  const [servicios, entidades] = await Promise.all([
+    fetchDetalle('/tipo_servicio?select=codigo,nombre_es&activo=is.true&order=nombre_es'),
+    fetchDetalle('/entidad_legal?select=id,denominacion_social&order=denominacion_social'),
+  ]);
+  CAT = { servicios, entidades };
+  return CAT;
+}
+
+const optsServicio = (sel) => CAT.servicios
+  .map(s => `<option value="${esc(s.codigo)}"${s.codigo === sel ? ' selected' : ''}>${esc(s.nombre_es)}</option>`).join('');
+
+const optsEntidad = (sel) => CAT.entidades
+  .map(e => `<option value="${e.id}"${e.id === sel ? ' selected' : ''}>${esc(e.denominacion_social)}</option>`).join('');
+
+function filaLineaProp(l, i) {
+  return `<tr data-linea="${i}">
+    <td><input class="lp-desc" value="${esc(l.descripcion || '')}"></td>
+    <td><select class="lp-serv">${optsServicio(l.tipo_servicio || 'LF_COMPLETO')}</select></td>
+    <td><select class="lp-clas">
+      <option value="cartera">cartera</option>
+      <option value="incidental"${l.clasificacion === 'incidental' ? ' selected' : ''}>incidental</option>
+    </select></td>
+    <td class="imp"><input class="lp-imp num" value="${l.importe ?? ''}"></td>
+    <td><button class="mini gris" data-lp-del="${i}" title="quitar línea">×</button></td>
+  </tr>`;
+}
+
+function bloqueProp(f, b) {
+  const hecho = (f.bloques_aplicados || []).includes(b.idx);
+  const lineas = (b.lineas || []).map(filaLineaProp).join('');
+  const conf = CONFIANZA_CLI[b.confianza_cliente] || b.confianza_cliente || '—';
+  return `<div class="prop-bloque${hecho ? ' hecho' : ''}" data-bloque="${b.idx}" data-ing="${f.id}">
+    ${f.n_bloques > 1 ? `<h4>Alta ${b.idx + 1} de ${f.n_bloques}${hecho ? ' — ya confirmada' : ''}</h4>` : ''}
+    <div class="prop-campos">
+      <div>
+        <label>Cliente</label>
+        <select class="pb-cliente">
+          <option value="">— elige el cliente —</option>
+          ${/* pie_legal NO se preselecciona: es probablemente el remitente, no el cliente.
+               Se deja en la lista como sugerencia, pero que lo elija Antonio a conciencia. */
+            optsEntidad(b.confianza_cliente === 'pie_legal' ? null : b.cliente_id)}
+        </select>
+        <div class="sub">${b.cliente ? `detectado: ${esc(b.cliente)} (${esc(conf)})` : 'no se ha identificado ninguno'}
+          · <button class="mini gris pb-nuevo">crear cliente nuevo</button></div>
+      </div>
+      <div><label>Fecha de envío</label><input type="date" class="pb-fecha" value="${esc(f.fecha_envio || '')}"></div>
+      <div><label>Importe propuesto (€)</label><input class="pb-importe num" value="${b.importe ?? ''}"></div>
+    </div>
+    <table class="prop-lineas">
+      <thead><tr><th style="width:44%">Concepto</th><th>Tipo de servicio</th><th>Clasif.</th><th class="imp">Importe</th><th></th></tr></thead>
+      <tbody>${lineas}</tbody>
+    </table>
+    <div class="top-row">
+      <button class="mini gris pb-addlinea">+ añadir línea</button>
+      <span class="status pb-cuadre"></span>
+    </div>
+    ${hecho ? '' : `<div class="top-row" style="justify-content:flex-end;gap:8px;margin-top:8px">
+      <button class="mini verde pb-confirmar">Confirmar alta${f.n_bloques > 1 ? ' ' + (b.idx + 1) : ''}</button>
+    </div>`}
+  </div>`;
+}
+
+function tarjetaProp(f) {
+  const bloques = (f.cambios_propuestos && f.cambios_propuestos.bloques) || [];
+  const avisos = (f.avisos || []).filter(Boolean);
+  const pills = [
+    `<span class="pill ${f.confianza === 'alta' ? 'ok' : 'warn'}">confianza ${esc(f.confianza || '?')}</span>`,
+    f.tipo_doc === 'EMAIL' ? '<span class="pill morado">es un email</span>' : '',
+    `<span class="pill">${esc(f.metodo_extraccion || '')}</span>`,
+  ].join('');
+
+  if (!bloques.length) {
+    return `<div class="prop-tarjeta" data-ing="${f.id}">
+      <div class="prop-cab"><div><strong>${esc(nombreArchivo(f.archivo))}</strong>
+        <div class="sub">${esc(f.motivo_duda || 'sin datos suficientes para proponer un alta')}</div></div>
+        <div class="pills">${pills}</div></div>
+      ${avisos.map(a => `<div class="prop-aviso">${esc(a)}</div>`).join('')}
+      <div class="top-row" style="justify-content:flex-end"><button class="mini gris pt-descartar">Descartar</button></div>
+    </div>`;
+  }
+
+  const cuadre = f.cuadra === true
+    ? '<span class="ok">✓ el total cuadra con la suma de líneas</span>'
+    : (f.descuento ? '<span class="warn">tiene descuento: el total no cuadra con las líneas a propósito</span>'
+                   : '<span class="warn">⚠ sin total explícito en el documento</span>');
+
+  return `<div class="prop-tarjeta" data-ing="${f.id}">
+    <div class="prop-cab">
+      <div><strong>${esc(nombreArchivo(f.archivo))}</strong>
+        <div class="sub">total del documento: ${f.total_documento != null ? fmt2(f.total_documento) + ' €' : '—'} · ${cuadre}</div>
+      </div>
+      <div class="pills">${pills}</div>
+    </div>
+    ${avisos.map(a => `<div class="prop-aviso${/pie legal|email/.test(a) ? ' grave' : ''}">${esc(a)}</div>`).join('')}
+    ${bloques.map(b => bloqueProp(f, b)).join('')}
+    <div class="top-row" style="justify-content:flex-end;margin-top:6px">
+      <button class="mini gris pt-descartar">Descartar documento</button>
+    </div>
+  </div>`;
+}
+
+const nombreArchivo = (p) => String(p || '').split('/').pop();
+
+async function cargarIngestaProp() {
+  const st = $('ingpStatus');
+  try {
+    await catalogos();
+    const filas = await fetchDetalle('/v_cm_ingesta_pendiente_propuesta?select=*');
+    const n = filas.length;
+    const b = $('ingpBadge');
+    if (n) { b.textContent = n; b.style.display = 'inline-block'; } else b.style.display = 'none';
+    $('ingpLista').innerHTML = n ? filas.map(tarjetaProp).join('')
+                                 : '<span class="status">nada pendiente de revisar</span>';
+    $('ingpLista').querySelectorAll('.prop-bloque').forEach(recalcularCuadre);
+    st.textContent = n ? `${n} documento(s)` : '';
+    st.className = 'status';
+  } catch (e) {
+    if (e.message !== 'SIN_SESION') { st.textContent = e.message; st.className = 'status error'; }
+  }
+}
+
+// El cuadre se calcula SIEMPRE en JS y se refresca al teclear: nunca se le pide a la IA
+// (lección de FASE I). Avisa en vivo si las líneas dejan de sumar el importe de la cabecera.
+function recalcularCuadre(bloque) {
+  const imp = num(bloque.querySelector('.pb-importe').value);
+  const suma = [...bloque.querySelectorAll('.lp-imp')].reduce((a, i) => a + (num(i.value) || 0), 0);
+  const el = bloque.querySelector('.pb-cuadre');
+  if (!suma) { el.textContent = ''; return; }
+  const ok = imp != null && Math.abs(suma - imp) < 0.01;
+  el.textContent = ok ? `✓ las líneas suman ${fmt2(suma)} €`
+                      : `⚠ las líneas suman ${fmt2(suma)} € y el importe dice ${imp != null ? fmt2(imp) : '—'} €`;
+  el.className = 'status pb-cuadre ' + (ok ? 'ok' : 'warn');
+}
+
+const num = (v) => {
+  const n = Number(String(v).replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, ''));
+  return Number.isFinite(n) ? n : null;
+};
+
+function datosBloque(bloque) {
+  const lineas = [...bloque.querySelectorAll('tr[data-linea]')].map(tr => ({
+    descripcion: tr.querySelector('.lp-desc').value.trim(),
+    importe: num(tr.querySelector('.lp-imp').value),
+    tipo_servicio: tr.querySelector('.lp-serv').value,
+    clasificacion: tr.querySelector('.lp-clas').value,
+  })).filter(l => l.importe != null && l.importe > 0);
+  return {
+    p_ingesta_id: bloque.dataset.ing,
+    p_bloque_idx: Number(bloque.dataset.bloque),
+    p_cliente_id: bloque.querySelector('.pb-cliente').value || null,
+    p_fecha_envio: bloque.querySelector('.pb-fecha').value || null,
+    p_importe: num(bloque.querySelector('.pb-importe').value),
+    p_lineas: lineas,
+  };
+}
+
+$('ingpLista').addEventListener('input', (e) => {
+  if (e.target.matches('.pb-importe, .lp-imp')) recalcularCuadre(e.target.closest('.prop-bloque'));
+});
+
+$('ingpLista').addEventListener('click', async (e) => {
+  const bloque = e.target.closest('.prop-bloque');
+
+  if (e.target.matches('.pb-addlinea')) {
+    const tbody = bloque.querySelector('tbody');
+    tbody.insertAdjacentHTML('beforeend', filaLineaProp({}, tbody.children.length));
+    return;
+  }
+  if (e.target.matches('[data-lp-del]')) {
+    e.target.closest('tr').remove();
+    recalcularCuadre(bloque);
+    return;
+  }
+  if (e.target.matches('.pb-nuevo')) {
+    const den = prompt('Denominación social del cliente nuevo:');
+    if (!den || !den.trim()) return;
+    const nif = prompt('NIF (opcional):') || null;
+    bloque.dataset.nuevoCliente = JSON.stringify({ denominacion: den.trim(), nif: nif && nif.trim() });
+    bloque.querySelector('.pb-cliente').insertAdjacentHTML('afterbegin',
+      `<option value="" selected>➕ ${esc(den.trim())} (se creará al confirmar)</option>`);
+    return;
+  }
+
+  if (e.target.matches('.pb-confirmar')) {
+    const d = datosBloque(bloque);
+    if (bloque.dataset.nuevoCliente) { d.p_nuevo_cliente = JSON.parse(bloque.dataset.nuevoCliente); d.p_cliente_id = null; }
+    if (!d.p_cliente_id && !d.p_nuevo_cliente) { alert('Elige un cliente o crea uno nuevo.'); return; }
+    if (!d.p_importe) { alert('Revisa el importe antes de confirmar.'); return; }
+    const suma = d.p_lineas.reduce((a, l) => a + l.importe, 0);
+    const aviso = suma && Math.abs(suma - d.p_importe) > 0.01
+      ? `\n\n⚠ Las líneas suman ${fmt2(suma)} € y el importe dice ${fmt2(d.p_importe)} €.` : '';
+    if (!confirm(`Se creará una propuesta nueva en estado OPORTUNIDAD por ${fmt2(d.p_importe)} € con ${d.p_lineas.length} línea(s).${aviso}`)) return;
+    try {
+      const r = await rpc('cm_confirmar_ingesta_propuesta', d);
+      alert(r.ok
+        ? `✓ ${r.propuesta} creada (${r.lineas} línea(s), ${fmt2(r.importe)} €)` +
+          (r.bloques_pendientes ? `\nQuedan ${r.bloques_pendientes} alta(s) por confirmar en este documento.` : '')
+        : `No se pudo: ${r.error}`);
+      cargarIngestaProp();
+    } catch (err) { alert('Error: ' + err.message); }
+    return;
+  }
+
+  if (e.target.matches('.pt-descartar')) {
+    const id = e.target.closest('.prop-tarjeta').dataset.ing;
+    const motivo = prompt('¿Por qué lo descartas? (opcional)') || null;
+    try {
+      await rpc('cm_descartar_ingesta', { p_ingesta_id: id, p_motivo: motivo });
+      cargarIngestaProp();
+    } catch (err) { alert('Error: ' + err.message); }
+  }
+});
+
+// ============================================================
 // ASISTENTE: chat + informes + voz + Teo
 // ============================================================
 // En SVG, className es de solo lectura: hay que usar setAttribute.
@@ -1271,6 +1527,54 @@ window.addEventListener('appinstalled', () => {
   const b = $('btnInstalar'); if (b) b.style.display = 'none';
 });
 
+// ============================================================
+// NOTIFICACIONES PUSH (FASE J). Clave pública VAPID: no es un secreto, es la mitad
+// pública del par (se usa igual que la clave ANON, embebida en el cliente por diseño).
+// ============================================================
+const VAPID_PUBLIC = 'BELkLIuqpIWPBMerr8wnx82-DJlf_yDKGg2myhvIiKai5GsqhUUZ4iHuivzBVIPZ7aJPBFZB5wH16Ny3Y0efGhY';
+function urlBase64ToUint8Array(base64) {
+  const padding = '='.repeat((4 - base64.length % 4) % 4);
+  const base64safe = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64safe);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+async function activarAvisos() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    alert('Este navegador no soporta notificaciones push.'); return;
+  }
+  const tok = await getToken();
+  if (!tok) { mostrarLogin(); return; }
+  try {
+    const permiso = await Notification.requestPermission();
+    if (permiso !== 'granted') { alert('Permiso de notificaciones denegado.'); return; }
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC),
+      });
+    }
+    const j = sub.toJSON();
+    const r = await rpc('cm_guardar_push_sub', {
+      p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth,
+      p_user_agent: navigator.userAgent,
+    });
+    if (r.ok) {
+      alert('✓ Avisos activados en este dispositivo.');
+      $('btnAvisos').textContent = '🔔 avisos activados'; $('btnAvisos').disabled = true;
+    }
+  } catch (e) { alert('No se pudo activar: ' + e.message); }
+}
+async function comprobarAvisos() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) { $('btnAvisos').textContent = '🔔 avisos activados'; $('btnAvisos').disabled = true; }
+  } catch {}
+}
+
 // --- Voz de entrada (Web Speech API) ---
 let rec = null;
 function initVoz() {
@@ -1309,6 +1613,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       await loginPassword($('loginEmail').value.trim(), $('loginPass').value); ocultarLogin(); refrescarSesionUI();
       cargarPanel();
+      if (bioActivada()) await bioRevincular(); // repara Hello tras entrar por respaldo
       // Onboarding del sistema único: tras la primera contraseña, ofrecer el desbloqueo.
       if (!bioActivada() && window.PublicKeyCredential) {
         setTimeout(() => {
@@ -1326,6 +1631,8 @@ document.addEventListener('DOMContentLoaded', () => {
     installEvt.prompt(); await installEvt.userChoice;
     installEvt = null; $('btnInstalar').style.display = 'none';
   };
+  $('btnAvisos').onclick = activarAvisos;
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) $('btnAvisos').style.display = 'none';
 
   $('refresh').onclick = cargarPanel;
   $('btnBuscar').onclick = buscar;
@@ -1341,6 +1648,7 @@ document.addEventListener('DOMContentLoaded', () => {
   zona.addEventListener('drop', e => { e.preventDefault(); zona.classList.remove('arrastre'); subirFicheros(e.dataTransfer.files); });
   $('btnVerBandeja').onclick = verBandeja;
   $('btnIngRefrescar').onclick = cargarIngesta;
+  $('btnIngpRefrescar').onclick = cargarIngestaProp;
   $('btnInfGenerar').onclick = () => generarInforme(false);
   $('btnInfRefinar').onclick = () => generarInforme(true);
   $('btnInfGuardar').onclick = guardarInformeActual;

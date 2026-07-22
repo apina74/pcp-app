@@ -38,6 +38,7 @@
     <span class="spacer"></span>
     <span id="sesionInfo" class="status"></span>
     <button id="btnInstalar" class="verde mini" style="display:none">⬇ Instalar app</button>
+    <button id="btnAvisos" class="gris mini">🔔 activar avisos</button>
     <button id="btnSesion" class="gris mini">entrar</button>
   </div>
 </div>
@@ -237,7 +238,7 @@
   </div>
   <div id="zonaSubir" class="subir-caja">
     <p style="font-size:14px;margin:0 0 6px"><strong>Arrastra PDFs aquí</strong> o</p>
-    <input id="inputFicheros" type="file" accept=".pdf,application/pdf" multiple style="display:none">
+    <input id="inputFicheros" type="file" accept=".pdf,application/pdf,.pptx" multiple style="display:none">
     <button id="btnElegir" class="azul">Elegir ficheros</button>
     <p class="sub" style="margin-top:10px">Van a la bandeja de entrada segura; la ingesta del PC los recoge y procesa<br>(bucket → Dropbox → BD). Nada se publica.</p>
   </div>
@@ -249,12 +250,21 @@
   <div id="bandejaLista" style="margin-top:8px"></div>
 
   <!-- FASE G: lo que la ingesta server-side propone. Nada se aplica sin confirmar aquí. -->
-  <h2 class="section-title">Pendiente de revisar <span id="ingBadge" class="badge" style="display:none"></span></h2>
+  <h2 class="section-title">Facturas pendientes de revisar <span id="ingBadge" class="badge" style="display:none"></span></h2>
   <div class="top-row" style="margin-bottom:10px">
     <button id="btnIngRefrescar" class="gris mini">Actualizar</button>
     <span id="ingStatus" class="status"></span>
   </div>
   <div id="ingLista"></div>
+
+  <!-- FASE G.4: propuestas. A diferencia de las facturas, aquí el alta se CREA desde cero,
+       así que todo (cliente, importe, líneas) llega editable antes de confirmar. -->
+  <h2 class="section-title">Propuestas pendientes de revisar <span id="ingpBadge" class="badge" style="display:none"></span></h2>
+  <div class="top-row" style="margin-bottom:10px">
+    <button id="btnIngpRefrescar" class="gris mini">Actualizar</button>
+    <span id="ingpStatus" class="status"></span>
+  </div>
+  <div id="ingpLista"></div>
 </section>
 
 </main>

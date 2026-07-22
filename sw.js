@@ -2,13 +2,14 @@
 // Los datos (vistas v_cm_* y Q&A) NUNCA se cachean: siempre se piden frescos a la red.
 // v18: navegación RED-PRIMERO (las versiones nuevas entran a la primera apertura;
 // la caché solo responde sin conexión) + instalación saltándose la caché HTTP.
-const CACHE = 'pcp-v22';
+const CACHE = 'pcp-v27';
 const ASSETS = [
   './index.html',
   './styles.css',
   './app.js',
   './manifest.webmanifest',
   './icon.svg',
+  './icon-96.png',
   './icon-192.png',
   './icon-512.png',
   'https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js',
@@ -52,4 +53,30 @@ self.addEventListener('fetch', (e) => {
   }
   // Resto de assets: caché primero, red de respaldo.
   e.respondWith(caches.match(e.request).then((hit) => hit || fetch(e.request)));
+});
+
+// ===== FASE J: notificaciones push =====
+self.addEventListener('push', (e) => {
+  let datos = { titulo: 'Kira', cuerpo: 'Tienes novedades en el PCP.' };
+  try { datos = e.data.json(); } catch {}
+  e.waitUntil(
+    self.registration.showNotification(datos.titulo || 'Kira', {
+      body: datos.cuerpo || '',
+      // 96px (48 DIP × 2): con 192px, Windows 11 recortaba el icono del toast al cuadrante
+      // superior izquierdo; con 96px se ve completo (CONFIRMADO por Antonio, 22-07).
+      icon: './icon-96.png',
+      badge: './icon-96.png',
+      data: { url: './' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientes) => {
+      for (const c of clientes) { if ('focus' in c) return c.focus(); }
+      if (self.clients.openWindow) return self.clients.openWindow('./');
+    })
+  );
 });
