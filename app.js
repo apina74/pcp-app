@@ -272,12 +272,27 @@ document.querySelectorAll('.nav-item[data-pantalla]').forEach(t => t.addEventLis
   document.querySelectorAll('.pantalla').forEach(x => x.classList.remove('activa'));
   t.classList.add('activa');
   $('pantalla-' + t.dataset.pantalla).classList.add('activa');
+  cerrarMenu();
   // Toda la app queda tras el login (decisión 2026-07-05): cualquier pantalla exige sesión.
   if (!ses) mostrarLogin();
   if (t.dataset.pantalla === 'proyectos' && ses) cargarProyectos();
   if (t.dataset.pantalla === 'informes' && ses) cargarInformesGuardados();
   if (t.dataset.pantalla === 'subir' && ses) { cargarIngesta(); cargarIngestaProp(); }
 }));
+
+// Menú lateral en móvil (F3): en escritorio el sidebar es fijo y esto no llega a actuar.
+function cerrarMenu() {
+  $('navLateral').classList.remove('abierto');
+  $('navVelo').hidden = true;
+  $('btnMenu').setAttribute('aria-expanded', 'false');
+}
+$('btnMenu').addEventListener('click', () => {
+  const abierto = $('navLateral').classList.toggle('abierto');
+  $('navVelo').hidden = !abierto;
+  $('btnMenu').setAttribute('aria-expanded', String(abierto));
+});
+$('navVelo').addEventListener('click', cerrarMenu);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') cerrarMenu(); });
 
 // Kira flotante (FASE F: antes pestaña Asistente a pantalla completa)
 function abrirKira() {
@@ -1279,12 +1294,17 @@ function addMsg(cls, html) {
   return d;
 }
 
+// En Android getVoices() devuelve [] en el primer arranque y se puebla después: sin escuchar
+// 'voiceschanged' la primera respuesta salía con la voz por defecto del sistema (inglés).
+let vozCache = null;
 function vozFemenina() {
+  if (vozCache) return vozCache;
   const esVoces = speechSynthesis.getVoices().filter(v => v.lang && v.lang.toLowerCase().startsWith('es'));
   const fem = /helena|laura|elvira|sabina|paloma|luc[ií]a|m[oó]nica|montse|dalia|camila|isidora|catalina|female|mujer/i;
-  return esVoces.find(v => fem.test(v.name))
+  vozCache = esVoces.find(v => fem.test(v.name))
       || esVoces.find(v => /google/i.test(v.name))
       || esVoces[0] || null;
+  return vozCache;
 }
 
 function hablar(texto) {
@@ -1666,7 +1686,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const vozGuardada = localStorage.getItem(LS_VOZ);
   if (vozGuardada !== null) $('chkVoz').checked = vozGuardada === '1';
   $('chkVoz').addEventListener('change', () => localStorage.setItem(LS_VOZ, $('chkVoz').checked ? '1' : '0'));
-  if ('speechSynthesis' in window) speechSynthesis.getVoices(); // precarga de voces
+  if ('speechSynthesis' in window) {
+    speechSynthesis.getVoices(); // precarga de voces
+    // Android puebla la lista de forma asíncrona: al llegar, se rehace la elección.
+    speechSynthesis.addEventListener('voiceschanged', () => { vozCache = null; vozFemenina(); });
+  }
 
   // sesión previa: sesión en claro > desbloqueo del dispositivo > login obligatorio
   const guardada = localStorage.getItem(LS_SES);

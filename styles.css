@@ -559,3 +559,47 @@ table.datos tfoot td { font-weight: 700; background: #0a0c1c; border-top: 1px so
 #teo .cuerpo-g { transform-origin: center bottom; }
 #teo.reposo .cuerpo-g { animation: respira 3.5s ease-in-out infinite; }
 @keyframes respira { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(1.025); } }
+
+/* ---------- Responsive móvil (F3, 2026-07-26) ----------
+   El sidebar de FASE F (190px fijos) dejaba 185px de contenido en un móvil de 375px.
+   Bajo 720px pasa a panel deslizante con hamburguesa; la ingesta de documentos
+   (Subir) no se ofrece en móvil por decisión de Antonio. */
+.nav-toggle {
+  display: none; background: transparent; border: 1px solid var(--borde); color: var(--navy-800);
+  font-size: 18px; line-height: 1; padding: 6px 10px; border-radius: 6px; cursor: pointer;
+  box-shadow: none; clip-path: none; text-transform: none;
+}
+.nav-velo {
+  position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 540;
+  backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px);
+}
+
+@media (max-width: 720px) {
+  .nav-toggle { display: block; }
+  .solo-escritorio { display: none !important; }
+
+  .top { padding: 10px 12px; }
+  .top h1 { font-size: 15px; }
+  .top-row { gap: 8px; }
+  .top-row .sub { font-size: 10.5px; width: 100%; order: 10; }
+
+  /* Sidebar → panel deslizante sobre el contenido */
+  .sidebar {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: 560; width: 232px;
+    background: var(--tarjeta); border-right: 1px solid var(--borde);
+    padding: 16px 10px; overflow-y: auto;
+    transform: translateX(-100%); transition: transform .24s cubic-bezier(.4,0,.2,1);
+  }
+  .sidebar.abierto { transform: none; box-shadow: 10px 0 40px rgba(0,0,0,.6); }
+  .nav-item { padding: 13px 12px; font-size: 14px; }
+
+  .main { padding: 14px 12px 84px; }
+
+  /* El fab de Kira sube: en móvil el pulgar y la barra del sistema se estorban */
+  .kira-fab { right: 16px; bottom: 16px; width: 52px; height: 52px; font-size: 19px; }
+
+  /* Tablas anchas: scroll propio en vez de desbordar la página */
+  .tabla-wrap, .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table.datos { font-size: 12px; }
+  table.datos th, table.datos td { white-space: nowrap; }
+}

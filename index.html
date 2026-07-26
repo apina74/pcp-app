@@ -33,6 +33,7 @@
 <!-- ===== Cabecera ===== -->
 <div class="top">
   <div class="top-row">
+    <button id="btnMenu" class="nav-toggle" aria-label="Menú" aria-expanded="false" aria-controls="navLateral">☰</button>
     <h1>PCP <span style="font-weight:400;color:#6f7ba6;font-size:12px;text-shadow:none">Panel de Control Personal · v9</span></h1>
     <span class="sub"><span id="fyRotulo">FY oct-25 a sep-26</span> · <span id="hoy"></span></span>
     <span class="spacer"></span>
@@ -44,13 +45,14 @@
 </div>
 
 <div class="shell">
-<nav class="sidebar">
+<div id="navVelo" class="nav-velo" hidden></div>
+<nav class="sidebar" id="navLateral">
   <button class="nav-item activa" data-pantalla="panel">🏠 Dashboard</button>
   <button class="nav-item" data-pantalla="explorar">📊 Explorar</button>
   <button class="nav-item" data-pantalla="proyectos">🗂 Proyectos</button>
   <button class="nav-item" data-pantalla="informes">📄 Informes</button>
   <button class="nav-item" data-pantalla="cliente360">🔎 Cliente 360º</button>
-  <button class="nav-item" data-pantalla="subir">⬆ Subir</button>
+  <button class="nav-item solo-escritorio" data-pantalla="subir">⬆ Subir</button>
 </nav>
 <main class="main">
 
