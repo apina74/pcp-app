@@ -327,9 +327,9 @@ async function cargarPanel() {
   const fact = {};   // datos para los gráficos del desglose de facturación
   const r1 = paso('v_cm_hero', (rows) => { const r = rows[0]; if (!r) return;
     $('vFacturado').textContent = fmt0(r.facturado) + ' €';
-    $('sFacturado').textContent = `${r.n_facturado||0} facturas reales + placeholders ya emitidos`;
+    $('sFacturado').textContent = `${r.n_facturado||0} facturas emitidas con documento`;
     $('vPendiente').textContent = fmt0(r.pendiente) + ' €';
-    $('sPendiente').textContent = `${r.n_pendiente||0} placeholders y hitos hasta ${fyFinCorto()}`;
+    $('sPendiente').textContent = `${r.n_pendiente||0} hitos pendientes hasta ${fyFinCorto()}`;
     $('vPrevision').textContent = fmt0((+r.facturado||0)+(+r.pendiente||0)) + ' €';
     $('sPrevision').textContent = `${(r.n_facturado||0)+(r.n_pendiente||0)} conceptos`;
     $('cfPrev').textContent = fmt0((+r.facturado||0)+(+r.pendiente||0)) + ' €';
@@ -525,9 +525,10 @@ let sub = 'facturas', clientes = {}, usuarios = {};   // id -> {nombre, nif} / i
 let ultimaFilas = [], ultimaCols = [];
 
 const ESTADOS = {
-  facturas:   ['EMITIDA','ENVIADA','COBRADA','ANULADA'],
+  // Reforma 2026-08 (D18/D19): dos estados en cada máquina, ni uno más.
+  facturas:   ['EMITIDA','ANULADA'],
   propuestas: ['OPORTUNIDAD','PROPUESTA_ENVIADA','CERRADA'],
-  hitos:      ['previsto','facturable','facturado','cobrado'],
+  hitos:      ['previsto','facturado'],
   proyectos:  ['POR_INICIAR','EN_CURSO','PENDIENTE_INFO','PENDIENTE_REVISION_CLIENTE','PAUSADO','FINISHED','LOST'],
 };
 
@@ -565,7 +566,7 @@ async function buscar() {
     const d1 = $('fDesde').value, d2 = $('fHasta').value;
     let filas = [], cols = [];
     if (sub === 'facturas') {
-      let q = '/factura?select=id,numero_auxadi,codigo_legible,fecha_emision,estado,base_imponible,total,fecha_cobro,cliente_facturacion_id&order=fecha_emision.desc&limit=500';
+      let q = '/factura?select=id,numero_auxadi,codigo_legible,fecha_emision,estado,base_imponible,total,pdf_storage_path,cliente_facturacion_id&order=fecha_emision.desc&limit=500';
       if (est) q += `&estado=eq.${est}`;
       if (d1) q += `&fecha_emision=gte.${d1}`; if (d2) q += `&fecha_emision=lte.${d2}`;
       let rows = await fetchDetalle(q);
@@ -577,9 +578,10 @@ async function buscar() {
         { k:'cliente', t:'Cliente' }, { k:'fecha_emision', t:'Emisión' },
         { k:'estado', t:'Estado', pill:true },
         { k:'base_imponible', t:'Base €', num:true }, { k:'total', t:'Total €', num:true },
-        { k:'fecha_cobro', t:'Cobro' },
-        { k:'_acc', t:'', html:true, f:(v,r)=> ['ENVIADA','EMITIDA'].includes(r.estado)
-            ? `<button class="verde mini" data-accion="cobrada" data-id="${r.id}" data-ref="${esc(r.numero_auxadi||r.codigo_legible||'')}">✓ cobrada</button>` : '' }
+        // Reforma 2026-08 (D17/D19): lo que distingue una factura real de un apunte sin
+        // respaldo es el DOCUMENTO, no el estado. La columna de cobro y el botón de marcar
+        // cobrada se retiran: el proceso de cobro no se gestiona desde Kira.
+        { k:'pdf_storage_path', t:'Documento', f:(v)=> v ? 'sí' : '—' },
       ];
     } else if (sub === 'propuestas') {
       let q = '/propuesta?select=id,codigo_legible,estado,resultado_cierre,fecha_envio,fecha_aceptacion,importe_propuesto,importe_aceptado,cliente_servicio_id&order=creado_en.desc&limit=500';
@@ -597,7 +599,9 @@ async function buscar() {
             ? `<button class="azul mini" data-accion="seguimiento" data-id="${r.id}" data-ref="${esc(r.codigo_legible||'')}">📞 seguir</button>` : '' }
       ];
     } else if (sub === 'hitos') {
-      let q = '/hito_facturacion?select=id,codigo_legible,estado,fecha_prevista,importe_neto,descripcion,proyecto_linea_id&order=fecha_prevista.asc&limit=500';
+      // Reforma 2026-08 (D18/D21b): el estado del hito ya no es una columna, se deriva.
+      // Se lee de v_cm_hito_calc, que expone las mismas columnas con el estado calculado.
+      let q = '/v_cm_hitos_app?select=id,codigo_legible,estado,fecha_prevista,importe_neto,descripcion,proyecto_linea_id&order=fecha_prevista.asc&limit=500';
       if (est) q += `&estado=eq.${est}`;
       if (d1) q += `&fecha_prevista=gte.${d1}`; if (d2) q += `&fecha_prevista=lte.${d2}`;
       let rows = await fetchDetalle(q);
@@ -706,21 +710,13 @@ $('expTabla').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-accion]');
   if (!b) return;
   const { accion, id, ref, fecha } = b.dataset;
-  if (accion === 'cobrada') accionCobrada(id, ref);
-  else if (accion === 'mover-hito') accionMoverHito(id, ref, fecha);
+  if (accion === 'mover-hito') accionMoverHito(id, ref, fecha);
   else if (accion === 'seguimiento') accionSeguimiento(id, ref);
 });
 
 // Acciones de escritura (RPC controladas)
-window.accionCobrada = async (id, ref) => {
-  const fecha = prompt(`Marcar ${ref} como COBRADA (estimación — no es un dato confirmado por el cliente).\nFecha de cobro (YYYY-MM-DD):`, new Date().toISOString().slice(0,10));
-  if (!fecha) return;
-  try {
-    const r = await rpc('cm_marcar_cobrada', { p_factura_id: id, p_fecha: fecha });
-    alert(r.ok ? `✓ ${r.factura} cobrada — estimado (${r.fecha_cobro})` : `No se pudo: ${r.error}`);
-    if (r.ok) { buscar(); cargarBadgeAlertas(); }
-  } catch (e) { alert('Error: ' + e.message); }
-};
+// Reforma 2026-08 (D19): retirada accionCobrada — el proceso de cobro no se gestiona
+// desde Kira, así que no hay acción que lo marque.
 window.accionMoverHito = async (id, ref, actual) => {
   const fecha = prompt(`Nueva fecha prevista para ${ref} (actual ${actual}):`, actual);
   if (!fecha) return;
@@ -1327,21 +1323,8 @@ async function resolverIdentificador(rpcNombre, identificador) {
   await cargarClientes();
   const q = (identificador || '').trim();
   if (!q) return [];
-  if (rpcNombre === 'cm_marcar_cobrada') {
-    const idsCliente = Object.entries(clientes)
-      .filter(([, c]) => (c.nombre || '').toLowerCase().includes(q.toLowerCase()))
-      .map(([id]) => id);
-    const or = [`numero_auxadi.ilike.*${q}*`, `codigo_legible.ilike.*${q}*`];
-    if (idsCliente.length) or.push(`cliente_facturacion_id.in.(${idsCliente.join(',')})`);
-    const rows = await fetchDetalle(`/factura?select=id,numero_auxadi,codigo_legible,estado,base_imponible,total,cliente_facturacion_id&or=(${or.join(',')})&limit=20`);
-    return rows.map(r => ({
-      id: r.id, ref: r.numero_auxadi || r.codigo_legible, estado: r.estado,
-      cliente: (clientes[r.cliente_facturacion_id] || {}).nombre || '—',
-      importe: r.total ?? r.base_imponible,
-    }));
-  }
   if (rpcNombre === 'cm_reprogramar_hito') {
-    const rows = await fetchDetalle(`/hito_facturacion?select=id,codigo_legible,estado,importe_neto,fecha_prevista&codigo_legible=ilike.*${q}*&limit=20`);
+    const rows = await fetchDetalle(`/v_cm_hitos_app?select=id,codigo_legible,estado,importe_neto,fecha_prevista&codigo_legible=ilike.*${q}*&limit=20`);
     return rows.map(r => ({ id: r.id, ref: r.codigo_legible, estado: r.estado, importe: r.importe_neto, fecha_prevista: r.fecha_prevista }));
   }
   // cm_registrar_seguimiento_propuesta
@@ -1384,11 +1367,6 @@ async function pintarTarjetaAccion(d, msg) {
   const cont = document.createElement('div'); cont.className = 'tarjeta-accion';
   const resumen = document.createElement('div'); resumen.textContent = d.resumen || 'Confirmar acción';
   cont.appendChild(resumen);
-  if (d.rpc === 'cm_marcar_cobrada') {
-    const aviso = document.createElement('div'); aviso.className = 'sub';
-    aviso.textContent = 'El cobro es una estimación tuya, no un dato confirmado por el cliente.';
-    cont.appendChild(aviso);
-  }
   const imp = resuelto.importe != null ? fmt2(resuelto.importe) + ' €' : '';
   const linea = document.createElement('div'); linea.className = 'sub';
   linea.textContent = `${resuelto.ref}${resuelto.cliente ? ' — ' + resuelto.cliente : ''}${imp ? ' — ' + imp : ''} (estado: ${resuelto.estado})`;
@@ -1405,13 +1383,11 @@ async function pintarTarjetaAccion(d, msg) {
     bConf.disabled = true; bCanc.disabled = true;
     linea.textContent = 'ejecutando…';
     try {
-      const params = d.rpc === 'cm_marcar_cobrada' ? { p_factura_id: resuelto.id, p_fecha: d.fecha || new Date().toISOString().slice(0, 10) }
-        : d.rpc === 'cm_reprogramar_hito' ? { p_hito_id: resuelto.id, p_fecha: d.fecha }
+      const params = d.rpc === 'cm_reprogramar_hito' ? { p_hito_id: resuelto.id, p_fecha: d.fecha }
         : { p_propuesta_id: resuelto.id, p_nota: d.nota || d.resumen };
       const r = await rpc(d.rpc, params);
       if (r.ok) {
-        linea.textContent = d.rpc === 'cm_marcar_cobrada' ? `✓ ${r.factura} marcada como cobrada (estimado) — ${r.fecha_cobro}`
-          : d.rpc === 'cm_reprogramar_hito' ? `✓ ${r.hito} reprogramado: ${r.antes} → ${r.ahora}`
+        linea.textContent = d.rpc === 'cm_reprogramar_hito' ? `✓ ${r.hito} reprogramado: ${r.antes} → ${r.ahora}`
           : `✓ Seguimiento registrado en ${r.propuesta} (${r.fecha})`;
         cargarBadgeAlertas();
         if (document.getElementById('pantalla-explorar').classList.contains('activa')) buscar().catch(() => {});
