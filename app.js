@@ -595,8 +595,19 @@ async function buscar() {
         { k:'estado', t:'Estado', pill:true }, { k:'resultado_cierre', t:'Resultado' },
         { k:'fecha_envio', t:'Envío' }, { k:'fecha_aceptacion', t:'Aceptación' },
         { k:'importe', t:'Importe €', num:true },
-        { k:'_acc', t:'', html:true, f:(v,r)=> r.estado === 'PROPUESTA_ENVIADA'
-            ? `<button class="azul mini" data-accion="seguimiento" data-id="${r.id}" data-ref="${esc(r.codigo_legible||'')}">📞 seguir</button>` : '' }
+        // Reforma 2026-08 (FASE 4): aceptar y cerrar dejan de hacerse cambiando el estado a
+        // mano. «Aceptar» abre la pantalla de confirmación, que pide la división en proyectos
+        // y el calendario; «cerrar» elige por sí solo entre rechazada y oportunidad perdida
+        // según haya habido oferta o no (D3), así que aquí no hay dos botones distintos.
+        { k:'_acc', t:'', html:true, f:(v,r)=> {
+            if (r.estado === 'PROPUESTA_ENVIADA') return ''
+              + `<button class="verde mini" data-accion="aceptar" data-id="${r.id}" data-ref="${esc(r.codigo_legible||'')}">✓ aceptar</button> `
+              + `<button class="azul mini" data-accion="seguimiento" data-id="${r.id}" data-ref="${esc(r.codigo_legible||'')}">📞 seguir</button> `
+              + `<button class="gris mini" data-accion="cerrar-no" data-id="${r.id}" data-ref="${esc(r.codigo_legible||'')}">✗ cerrar</button>`;
+            if (r.estado === 'OPORTUNIDAD') return ''
+              + `<button class="gris mini" data-accion="cerrar-no" data-id="${r.id}" data-ref="${esc(r.codigo_legible||'')}">✗ perdida</button>`;
+            return '';
+          } }
       ];
     } else if (sub === 'hitos') {
       // Reforma 2026-08 (D18/D21b): el estado del hito ya no es una columna, se deriva.
@@ -712,6 +723,8 @@ $('expTabla').addEventListener('click', (e) => {
   const { accion, id, ref, fecha } = b.dataset;
   if (accion === 'mover-hito') accionMoverHito(id, ref, fecha);
   else if (accion === 'seguimiento') accionSeguimiento(id, ref);
+  else if (accion === 'aceptar') abrirAceptacion(id, ref);
+  else if (accion === 'cerrar-no') accionCerrarSinAceptar(id, ref);
 });
 
 // Acciones de escritura (RPC controladas)
@@ -735,6 +748,326 @@ window.accionSeguimiento = async (id, ref) => {
     if (r.ok) { buscar(); cargarBadgeAlertas(); }
   } catch (e) { alert('Error: ' + e.message); }
 };
+
+// ============================================================
+// FASE 4 · CIERRE Y ACEPTACIÓN DE PROPUESTAS (reforma 2026-08)
+// Maqueta validada por Antonio el 2026-08-02 → maqueta_aceptacion_propuesta.html
+//
+// Antes, aceptar era cambiar el estado y un trigger deducía el resto: un proyecto por línea
+// de la oferta y siempre dos hitos al 50/50 (D9.5 y D12 lo prohíben). Ahora la división y el
+// calendario se INDICAN aquí, y la RPC crea exactamente eso.
+// ============================================================
+
+// Cerrar sin aceptar. NO se pregunta la salida: la elige la RPC según haya habido oferta
+// emitida o no (D3), porque el dato no puede depender de que la pantalla acierte.
+window.accionCerrarSinAceptar = async (id, ref) => {
+  const filas = await fetchDetalle(`/propuesta?select=fecha_envio&id=eq.${id}`).catch(() => null);
+  const hubo = filas && filas[0] && filas[0].fecha_envio;
+  const salida = hubo ? 'PROPUESTA RECHAZADA' : 'OPORTUNIDAD PERDIDA';
+  const matiz  = hubo
+    ? 'Sí computa como oferta perdida en el cuadro de mando.'
+    : 'NO computa como oferta perdida: nunca llegó a emitirse oferta, se reporta aparte.';
+  if (!confirm(`Cerrar ${ref} como ${salida}.\n\n${matiz}\n\n¿Continuar?`)) return;
+  try {
+    const r = await rpc('cm_cerrar_propuesta_sin_aceptar', { p_propuesta_id: id });
+    alert(r.ok ? `✓ ${r.propuesta} cerrada como ${r.salida}` : `No se pudo: ${r.error}`);
+    if (r.ok) { buscar(); cargarBadgeAlertas(); }
+  } catch (e) {
+    if (e.message === 'SIN_SESION') mostrarLogin(); else alert('Error: ' + e.message);
+  }
+};
+
+const acep = { id:null, ref:'', propuesta:null, docOk:false, docPath:null,
+               modo:1, proys:[], comun:null, tocado:[], tab:0, total:0 };
+const clonaHitos = hs => hs.map(h => ({ ...h }));
+const HITOS_5050 = () => ([
+  { concepto:'50% aceptación',     pct:50, fecha:hoyIso(), disparador:'PROYECTO_CREADO' },
+  { concepto:'50% borrador final', pct:50, fecha:'',        disparador:'BORRADOR_FINAL_ENVIADO' },
+]);
+function hoyIso(){ return new Date().toISOString().slice(0,10); }
+
+window.abrirAceptacion = async (id, ref) => {
+  try {
+    await cargarClientes();
+    const [p] = await fetchDetalle(`/propuesta?select=id,codigo_legible,importe_propuesto,importe_aceptado,`
+      + `cliente_servicio_id,cliente_facturacion_id,fecha_envio,pdf_storage_path,pdf_filename&id=eq.${id}`);
+    if (!p) { alert('No encuentro la propuesta.'); return; }
+    const lineas = await fetchDetalle(`/propuesta_linea?select=id,orden,descripcion,importe_propuesto`
+      + `&propuesta_id=eq.${id}&order=orden`);
+
+    Object.assign(acep, {
+      id, ref, propuesta: p, lineas: lineas || [],
+      docOk: !!p.pdf_storage_path, docPath: p.pdf_storage_path,
+      total: Number(p.importe_aceptado ?? p.importe_propuesto) || 0,
+      modo: 1, comun: HITOS_5050(), tab: 0,
+      proys: [{ cubierta: p.cliente_servicio_id || '', factura: p.cliente_facturacion_id || '',
+                importe: Number(p.importe_aceptado ?? p.importe_propuesto) || 0, hitos: null }],
+      tocado: [false],
+    });
+    $('acepTitulo').textContent = `Confirmar aceptación · ${p.codigo_legible}`;
+    const cli = (clientes[p.cliente_servicio_id] || {}).nombre || '—';
+    $('acepMeta').textContent = `${cli} · propuesto ${fmt2(p.importe_propuesto)} €`
+      + (p.fecha_envio ? ` · enviada ${p.fecha_envio}` : '');
+    $('acepVelo').hidden = false; $('acepCaja').hidden = false;
+    pintarAceptacion();
+  } catch (e) {
+    if (e.message === 'SIN_SESION') mostrarLogin(); else alert('Error: ' + e.message);
+  }
+};
+function cerrarAceptacion(){ $('acepVelo').hidden = true; $('acepCaja').hidden = true; }
+$('acepCerrar').addEventListener('click', cerrarAceptacion);
+$('acepCancelar').addEventListener('click', cerrarAceptacion);
+$('acepVelo').addEventListener('click', cerrarAceptacion);
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('acepCaja').hidden) cerrarAceptacion();
+});
+
+// Las entidades se ofrecen en un <select> con datalist implícito: son ~130, caben.
+function opcionesEntidad(sel) {
+  return '<option value="">— elegir —</option>' + Object.entries(clientes)
+    .sort((a,b) => (a[1].nombre||'').localeCompare(b[1].nombre||''))
+    .map(([id,c]) => `<option value="${id}"${id===sel?' selected':''}>${esc(c.nombre||'?')}</option>`).join('');
+}
+
+function pintarAceptacion() {
+  const a = acep;
+  if (a.tab >= a.proys.length) a.tab = 0;
+  const varios = a.modo === 2;
+
+  const filasProy = a.proys.map((p,i) => `<tr>
+    <td class="sub">${i+1}</td>
+    <td><select data-ap="cubierta" data-i="${i}">${opcionesEntidad(p.cubierta)}</select></td>
+    <td><select data-ap="factura" data-i="${i}">${opcionesEntidad(p.factura)}</select></td>
+    <td class="imp"><input class="imp" data-ap="importe" data-i="${i}" value="${p.importe}"></td>
+    <td>${varios ? `<button class="mini gris" data-ap="quitar" data-i="${i}">✕</button>` : ''}</td></tr>`).join('');
+
+  const sumaP = a.proys.reduce((s,p) => s + (Number(p.importe)||0), 0);
+  const cuadraP = Math.abs(sumaP - a.total) < 0.005;
+
+  const hs = hitosDe(a.tab);
+  const base = Number(a.proys[a.tab].importe) || 0;
+  const sumaH = hs.reduce((s,h) => s + base*(Number(h.pct)||0)/100, 0);
+  const cuadraH = Math.abs(sumaH - base) < 0.005;
+
+  $('acepCuerpo').innerHTML = `
+    <div class="prop-campos">
+      <div><label>Importe aceptado</label>
+        <input id="acepTotal" value="${a.total}" inputmode="decimal"></div>
+      <div><label>Fecha de aceptación</label>
+        <input id="acepFecha" type="date" value="${hoyIso()}"></div>
+    </div>
+
+    <div class="acep-bloque ${a.docOk ? '' : 'falta'}">
+      <h4>1 · Documento de aceptación — obligatorio</h4>
+      <div class="acep-drop ${a.docOk ? 'cargado' : ''}" id="acepDrop">
+        ${a.docOk
+          ? `✓ ${esc(a.docPath || 'documento registrado')}<div class="acep-hint">pulsa para sustituirlo</div>`
+          : '📎 pulsa para elegir el PDF firmado o el correo del cliente<div class="acep-hint">sin esto no se puede confirmar</div>'}
+      </div>
+      <input type="file" id="acepFile" accept=".pdf,.msg,.eml,.png,.jpg" hidden>
+    </div>
+
+    <div class="acep-bloque">
+      <h4>2 · ¿En cuántos proyectos se divide?</h4>
+      <label class="acep-opcion ${!varios?'sel':''}">
+        <input type="radio" name="acepModo" ${!varios?'checked':''} data-ap="modo" data-v="1">
+        <div><div>Un solo proyecto</div><div class="d">La regla general. Que la oferta lleve varias líneas no implica varios proyectos.</div></div></label>
+      <label class="acep-opcion ${varios?'sel':''}">
+        <input type="radio" name="acepModo" ${varios?'checked':''} data-ap="modo" data-v="2">
+        <div><div>Varios proyectos</div><div class="d">Solo si (a) se factura a varias sociedades del grupo, o (b) hay fases o años que se facturan por separado.</div></div></label>
+      <table><thead><tr><th style="width:28px">#</th><th>Empresa cubierta <span class="sub">(cliente del trabajo)</span></th>
+        <th>Se factura a</th><th class="imp" style="width:120px">Importe</th><th style="width:32px"></th></tr></thead>
+        <tbody>${filasProy}</tbody></table>
+      ${varios ? `<button class="mini gris" data-ap="anadir">+ añadir proyecto</button>
+        ${a.lineas.length > 1 ? `<button class="mini gris" data-ap="traer">↻ traer las ${a.lineas.length} líneas de la oferta</button>` : ''}` : ''}
+      <div class="acep-cuadre"><span>Suma de los proyectos</span>
+        <span class="imp">${fmt2(sumaP)} €</span>
+        <span class="${cuadraP?'ok':'ko'}">${cuadraP ? '✓ cuadra' : '✗ ' + (sumaP>a.total?'sobran ':'faltan ') + fmt2(Math.abs(a.total-sumaP)) + ' €'}</span></div>
+    </div>
+
+    <div class="acep-bloque">
+      <h4>3 · Calendario de facturación</h4>
+      ${varios ? bloqueComun() : ''}
+      <div class="acep-tabs">${a.proys.map((p,i) =>
+        `<span class="acep-tab ${i===a.tab?'sel':''}" data-ap="tab" data-i="${i}">${
+          a.proys.length>1 ? 'Proyecto '+(i+1)+' · ' : ''}${esc((clientes[p.cubierta]||{}).nombre || '(sin elegir)')}${
+          varios && a.tocado[i] ? ' <b class="ajus">·ajustado</b>' : ''}</span>`).join('')}</div>
+      ${tablaHitos(hs, base, cuadraH, sumaH, 'h')}
+    </div>`;
+
+  const faltan = [];
+  if (!a.docOk) faltan.push('el documento de aceptación');
+  if (!cuadraP) faltan.push('que el reparto entre proyectos cuadre');
+  if (!todosLosPlazosCuadran()) faltan.push('que los plazos de cada proyecto cuadren');
+  if (a.proys.some(p => !p.cubierta)) faltan.push('la empresa cubierta de todos los proyectos');
+  const nh = a.proys.reduce((s,_,i) => s + hitosDe(i).length, 0);
+  const ok = faltan.length === 0;
+  $('acepResumen').className = 'acep-resumen' + (ok ? '' : ' ko');
+  $('acepResumen').textContent = ok
+    ? `Se ${a.proys.length>1?'crearán':'creará'} ${a.proys.length} proyecto${a.proys.length>1?'s':''} y ${nh} hito${nh>1?'s':''}, por ${fmt2(a.total)} €.`
+    : 'Falta ' + faltan.join(', ') + '.';
+  $('acepConfirmar').disabled = !ok;
+}
+
+function hitosDe(i) {
+  if (!acep.proys[i].hitos) acep.proys[i].hitos = clonaHitos(acep.modo===2 ? acep.comun : HITOS_5050());
+  return acep.proys[i].hitos;
+}
+function todosLosPlazosCuadran() {
+  return acep.proys.every((p,i) => {
+    const base = Number(p.importe)||0;
+    const s = hitosDe(i).reduce((x,h) => x + base*(Number(h.pct)||0)/100, 0);
+    return Math.abs(s - base) < 0.005;
+  });
+}
+function bloqueComun() {
+  const suma = acep.comun.reduce((s,h) => s + (Number(h.pct)||0), 0);
+  const ok = Math.abs(suma-100) < 0.005;
+  const ajust = acep.tocado.filter(Boolean).length;
+  return `<div class="acep-comun">
+    <div class="t">Calendario común — se aplica a los ${acep.proys.length} proyectos</div>
+    ${tablaHitos(acep.comun, null, ok, suma, 'c')}
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px">
+      <div><button class="mini gris" data-ap="c-add">+ plazo</button>
+        <button class="mini gris" data-ap="c-5050">↻ 50/50</button>
+        <button class="mini gris" data-ap="c-100">↻ 100% de una vez</button></div>
+      <div><span class="${ok?'ok':'ko'}" style="margin-right:10px">${ok?'✓ suma 100%':'✗ suma '+suma+'%'}</span>
+        <button class="morado mini" data-ap="c-aplicar">aplicar a los ${acep.proys.length}</button></div>
+    </div>
+    <p class="acep-hint">${ajust
+      ? `<b style="color:var(--ambar)">${ajust} proyecto${ajust>1?'s':''} con el calendario ajustado a mano</b> — aplicar el común los devolvería al patrón.`
+      : 'Puedes ajustar cualquiera por separado en sus pestañas.'}</p></div>`;
+}
+// pre = 'h' (plazos de un proyecto, con importe) | 'c' (calendario común, solo porcentajes)
+function tablaHitos(hs, base, cuadra, suma, pre) {
+  const conImporte = pre === 'h';
+  const filas = hs.map((h,j) => `<tr>
+    <td class="sub">${j+1}</td>
+    <td><input data-ap="${pre}-concepto" data-j="${j}" value="${esc(h.concepto||'')}"></td>
+    <td class="imp" style="width:70px"><input class="imp" data-ap="${pre}-pct" data-j="${j}" value="${h.pct}"></td>
+    ${conImporte ? `<td class="imp">${fmt2(base*(Number(h.pct)||0)/100)} €</td>` : ''}
+    <td style="width:140px"><input type="date" data-ap="${pre}-fecha" data-j="${j}" value="${h.fecha||''}"></td>
+    <td style="width:190px"><select data-ap="${pre}-disp" data-j="${j}">${
+      ['PROYECTO_CREADO','BORRADOR_FINAL_ENVIADO','MANUAL'].map(d =>
+        `<option${d===h.disparador?' selected':''}>${d}</option>`).join('')}</select></td>
+    <td style="width:30px"><button class="mini gris" data-ap="${pre}-del" data-j="${j}">✕</button></td></tr>`).join('');
+  return `<table><thead><tr><th style="width:28px">#</th><th>Concepto</th><th class="imp">%</th>
+    ${conImporte ? '<th class="imp">Importe</th>' : ''}<th>Fecha prevista</th><th>Se factura cuando…</th><th></th></tr></thead>
+    <tbody>${filas}</tbody></table>
+    ${conImporte ? `<div style="margin:4px 0"><button class="mini gris" data-ap="h-add">+ plazo</button>
+      <button class="mini gris" data-ap="h-5050">↻ 50/50</button>
+      <button class="mini gris" data-ap="h-100">↻ 100% de una vez</button></div>
+      <div class="acep-cuadre"><span>Suma de los plazos</span><span class="imp">${fmt2(suma)} €</span>
+        <span class="${cuadra?'ok':'ko'}">${cuadra?'✓ cuadra con el proyecto':'✗ faltan '+fmt2(base-suma)+' €'}</span></div>
+      <p class="acep-hint">Sin fecha prevista el hito no entra en la previsión. El segundo plazo suele ir sin fecha porque depende del borrador final.</p>` : ''}`;
+}
+
+// Un solo manejador para todo el modal: el HTML se repinta entero en cada cambio, así que no
+// puede haber listeners colgados de nodos que ya no existen (mismo patrón que #expTabla).
+$('acepCuerpo').addEventListener('click', (e) => {
+  const t = e.target.closest('[data-ap]'); if (!t) return;
+  const k = t.dataset.ap, i = +t.dataset.i, j = +t.dataset.j, a = acep;
+  if (k === 'modo') {
+    a.modo = +t.dataset.v;
+    if (a.modo === 1) { a.proys = [a.proys[0]]; a.tocado = [false]; a.proys[0].importe = a.total; a.proys[0].hitos = null; }
+    else if (a.proys.length === 1) { a.proys.push({ cubierta:'', factura:a.proys[0].factura, importe:0, hitos:null }); a.tocado.push(false); }
+    a.tab = 0;
+  }
+  else if (k === 'anadir') { a.proys.push({ cubierta:'', factura:a.proys[0].factura, importe:0, hitos:clonaHitos(a.comun) }); a.tocado.push(false); }
+  else if (k === 'quitar') { if (a.proys.length<2) return; a.proys.splice(i,1); a.tocado.splice(i,1); a.tab=0; }
+  else if (k === 'traer') {
+    // Botón, no automatismo: las líneas SUGIEREN la división, no la deciden (D9.5).
+    a.proys = a.lineas.map(l => ({ cubierta:'', factura:a.propuesta.cliente_facturacion_id||'',
+                                   importe:Number(l.importe_propuesto)||0, hitos:clonaHitos(a.comun) }));
+    a.tocado = a.proys.map(() => false); a.tab = 0;
+    alert('Traídas las líneas de la oferta con sus importes. Falta indicar la empresa cubierta de cada proyecto: la oferta no lo dice.');
+  }
+  else if (k === 'tab') a.tab = i;
+  else if (k === 'h-add') { hitosDe(a.tab).push({concepto:'plazo',pct:0,fecha:'',disparador:'MANUAL'}); a.tocado[a.tab]=true; }
+  else if (k === 'h-del') { const hs=hitosDe(a.tab); if(hs.length<2) return; hs.splice(j,1); a.tocado[a.tab]=true; }
+  else if (k === 'h-5050') { a.proys[a.tab].hitos = HITOS_5050(); a.tocado[a.tab]=true; }
+  else if (k === 'h-100')  { a.proys[a.tab].hitos = [{concepto:'100% del encargo',pct:100,fecha:hoyIso(),disparador:'PROYECTO_CREADO'}]; a.tocado[a.tab]=true; }
+  else if (k === 'c-add')  a.comun.push({concepto:'plazo',pct:0,fecha:'',disparador:'MANUAL'});
+  else if (k === 'c-del')  { if(a.comun.length<2) return; a.comun.splice(j,1); }
+  else if (k === 'c-5050') { a.comun = HITOS_5050(); aplicarComun(); }
+  else if (k === 'c-100')  { a.comun = [{concepto:'100% del encargo',pct:100,fecha:hoyIso(),disparador:'PROYECTO_CREADO'}]; aplicarComun(); }
+  else if (k === 'c-aplicar') aplicarComun();
+  else return;
+  pintarAceptacion();
+});
+function aplicarComun(){ acep.proys.forEach((p,i) => { p.hitos = clonaHitos(acep.comun); acep.tocado[i]=false; }); }
+
+$('acepCuerpo').addEventListener('input', (e) => {
+  const t = e.target.closest('[data-ap]'); if (!t) return;
+  const k = t.dataset.ap, i = +t.dataset.i, j = +t.dataset.j, a = acep, v = t.value;
+  if (t.id === 'acepTotal') { a.total = Number(v)||0; if (a.modo===1) a.proys[0].importe = a.total; }
+  else if (k === 'cubierta') a.proys[i].cubierta = v;
+  else if (k === 'factura')  a.proys[i].factura = v;
+  else if (k === 'importe')  a.proys[i].importe = Number(v)||0;
+  else if (k.startsWith('h-')) { const h = hitosDe(a.tab)[j]; h[campoDe(k)] = k==='h-pct' ? (Number(v)||0) : v; a.tocado[a.tab]=true; }
+  else if (k.startsWith('c-')) { const h = a.comun[j]; h[campoDe(k)] = k==='c-pct' ? (Number(v)||0) : v; }
+  else return;
+  // Repintar en cada tecla movería el cursor: solo se repinta lo que cambia de estado.
+  clearTimeout(acep._t); acep._t = setTimeout(pintarAceptacion, 350);
+});
+$('acepCuerpo').addEventListener('change', (e) => {
+  if (e.target.tagName === 'SELECT' || e.target.type === 'date') { clearTimeout(acep._t); pintarAceptacion(); }
+});
+const campoDe = k => ({ concepto:'concepto', pct:'pct', fecha:'fecha', disp:'disparador' })[k.slice(2)];
+
+// Subida del documento de aceptación al bucket de documentos y registro en la propuesta.
+$('acepCuerpo').addEventListener('click', (e) => {
+  if (e.target.closest('#acepDrop')) $('acepFile').click();
+});
+$('acepCuerpo').addEventListener('change', async (e) => {
+  const inp = e.target.closest('#acepFile'); if (!inp || !inp.files.length) return;
+  const f = inp.files[0], drop = $('acepDrop');
+  drop.textContent = 'subiendo…';
+  try {
+    const tok = await getToken(); if (!tok) throw new Error('SIN_SESION');
+    const limpio = f.name.replace(/[^\w.\-]/g, '_');
+    const ruta = `propuestas/aceptaciones/${acep.propuesta.codigo_legible}_${Date.now()}_${limpio}`;
+    const r = await fetch(`${URL_SB}/storage/v1/object/tps-documentos/${ruta}`, {
+      method:'POST', headers:{ apikey:ANON, Authorization:`Bearer ${tok}`, 'Content-Type': f.type || 'application/pdf' },
+      body: f });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    await fetchDetalle(`/propuesta?id=eq.${acep.id}`, { method:'PATCH',
+      headers:{ Prefer:'return=minimal' },
+      body: JSON.stringify({ pdf_storage_path: ruta, pdf_filename: f.name }) });
+    acep.docOk = true; acep.docPath = ruta;
+  } catch (err) {
+    acep.docOk = false;
+    if (err.message === 'SIN_SESION') mostrarLogin();
+    else alert('No se pudo subir el documento: ' + err.message);
+  }
+  pintarAceptacion();
+});
+
+$('acepConfirmar').addEventListener('click', async () => {
+  const b = $('acepConfirmar'); b.disabled = true; b.textContent = 'creando…';
+  try {
+    const proyectos = acep.proys.map((p,i) => ({
+      entidad_cubierta_id: p.cubierta,
+      cliente_facturacion_id: p.factura || null,
+      importe: Number(p.importe) || 0,
+      hitos: hitosDe(i).map(h => ({ concepto: h.concepto, pct: Number(h.pct)||0,
+                                    fecha: h.fecha || null, disparador: h.disparador })),
+    }));
+    const r = await rpc('cm_confirmar_aceptacion_propuesta', {
+      p_propuesta_id: acep.id,
+      p_importe_aceptado: acep.total,
+      p_fecha_aceptacion: $('acepFecha').value || hoyIso(),
+      p_proyectos: proyectos,
+    });
+    if (r.ok) {
+      alert(`✓ ${r.propuesta} aceptada.\n\nCreados ${r.n_proyectos} proyecto(s) y ${r.n_hitos} hito(s):\n${r.proyectos.join(', ')}`);
+      cerrarAceptacion(); buscar(); cargarBadgeAlertas();
+    } else { alert('No se pudo: ' + r.error); }
+  } catch (e) {
+    if (e.message === 'SIN_SESION') mostrarLogin(); else alert('Error: ' + e.message);
+  }
+  b.textContent = 'Confirmar aceptación'; pintarAceptacion();
+});
 
 // Exportar CSV (lo último buscado)
 function exportarCsv() {
