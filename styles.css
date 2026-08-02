@@ -603,3 +603,92 @@ table.datos tfoot td { font-weight: 700; background: #0a0c1c; border-top: 1px so
   table.datos { font-size: 12px; }
   table.datos th, table.datos td { white-space: nowrap; }
 }
+
+/* ============================================================
+   FASE 4 · Confirmación de aceptación de propuesta
+   Maqueta validada por Antonio el 2026-08-02. Es la única pantalla
+   modal de la app: se usa poco (una vez por oferta ganada) y exige
+   concentración, así que tapa el resto en vez de convivir con él.
+   ============================================================ */
+.modal-velo {
+  position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 700;
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+}
+.modal-caja {
+  position: fixed; z-index: 710; inset: 3vh 50% auto auto; transform: translateX(50%);
+  width: min(980px, 94vw); max-height: 94vh; display: flex; flex-direction: column;
+  background: var(--tarjeta); border: 1px solid var(--borde);
+  border-radius: var(--radio); box-shadow: var(--sombra-alta);
+  animation: aparecer .2s cubic-bezier(.4,0,.2,1);
+}
+.modal-caja[hidden], .modal-velo[hidden] { display: none; }
+.modal-cab {
+  display: flex; align-items: flex-start; gap: 12px; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid var(--borde);
+}
+.modal-cab strong {
+  font-family: 'Orbitron', 'Rajdhani', sans-serif; color: var(--navy-800);
+  letter-spacing: .06em; font-size: 15px;
+}
+.modal-cuerpo { padding: 14px 16px; overflow-y: auto; flex: 1; min-height: 0; }
+.modal-pie {
+  display: flex; align-items: center; gap: 12px; justify-content: space-between;
+  padding: 12px 16px; border-top: 1px solid var(--borde); flex-wrap: wrap;
+}
+.acep-bloque {
+  border: 1px solid var(--borde); border-radius: 8px; padding: 12px 14px;
+  margin-bottom: 12px; background: rgba(0,240,255,.02);
+}
+.acep-bloque.falta { border-color: var(--rojo); background: rgba(255,56,96,.05); }
+.acep-bloque > h4 {
+  margin: 0 0 10px; font-family: 'Orbitron', 'Rajdhani', sans-serif; font-size: 11px;
+  color: var(--morado); letter-spacing: .06em; text-transform: uppercase;
+}
+.acep-bloque.falta > h4 { color: var(--rojo); }
+.acep-drop {
+  border: 1px dashed var(--borde); border-radius: 8px; padding: 16px; text-align: center;
+  color: var(--gris-txt); font-size: 13px; cursor: pointer;
+}
+.acep-drop.cargado { border-color: var(--verde); border-style: solid; color: var(--verde); }
+.acep-opcion {
+  display: flex; gap: 9px; align-items: flex-start; padding: 9px 11px; margin-bottom: 7px;
+  border: 1px solid var(--borde); border-radius: 7px; cursor: pointer;
+}
+.acep-opcion.sel { border-color: var(--navy-800); background: rgba(0,240,255,.05); }
+.acep-opcion input { width: auto; margin-top: 3px; }
+.acep-opcion .d { font-size: 11px; color: var(--gris-txt); margin-top: 2px; }
+.acep-comun {
+  border: 1px solid var(--morado); border-radius: 8px; padding: 11px 12px; margin-bottom: 12px;
+  background: rgba(176,38,255,.05);
+}
+.acep-comun > .t {
+  font-size: 11px; color: var(--morado); letter-spacing: .05em; margin-bottom: 8px;
+  text-transform: uppercase; font-family: 'Orbitron', 'Rajdhani', sans-serif;
+}
+.acep-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.acep-tab {
+  font-size: 12px; padding: 5px 11px; border: 1px solid var(--borde);
+  border-radius: 999px; cursor: pointer; color: var(--tinta-2);
+}
+.acep-tab.sel { border-color: var(--morado); color: var(--morado); background: rgba(176,38,255,.08); }
+.acep-tab .ajus { color: var(--ambar); }
+.modal-caja table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+.modal-caja th {
+  text-align: left; font-size: 10px; color: var(--gris-txt); text-transform: uppercase;
+  letter-spacing: .06em; padding: 5px 6px; border-bottom: 1px solid var(--borde);
+}
+.modal-caja td { padding: 4px 6px; border-bottom: 1px solid rgba(28,35,66,.5); }
+.modal-caja td input, .modal-caja td select { padding: 5px 7px; font-size: 13px; width: 100%; }
+.modal-caja .num, .modal-caja .imp { text-align: right; font-variant-numeric: tabular-nums; }
+.acep-cuadre {
+  display: flex; justify-content: flex-end; gap: 16px; align-items: center;
+  font-size: 13px; padding: 8px 6px 0; border-top: 1px solid var(--borde);
+}
+.acep-cuadre .ok { color: var(--verde); }
+.acep-cuadre .ko { color: var(--ambar); }
+.acep-resumen { font-size: 13px; flex: 1; min-width: 240px; color: var(--verde); }
+.acep-resumen.ko { color: var(--ambar); }
+.acep-hint { font-size: 11px; color: var(--gris-txt); margin: 4px 0 0; }
+@media (max-width: 720px) {
+  .modal-caja { inset: 0; transform: none; width: 100vw; max-height: 100vh; border-radius: 0; }
+}
