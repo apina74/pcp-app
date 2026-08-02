@@ -775,15 +775,19 @@ function colsAuto(filas) {
 // ============================================================
 // CLIENTE 360º (FASE F): rpt_cliente_resumen ya está en el catálogo clásico de cm-qa
 // ("resumen del cliente X" desde el chat) — aquí se añade la vista dedicada y una tarjeta
-// compacta reutilizable en ambos sitios. cobrado_fy es una ESTIMACIÓN (cm_marcar_cobrada
-// registra la fecha de cobro a mano, no un dato confirmado por el cliente).
+// compacta reutilizable en ambos sitios.
+//
+// Reforma 2026-08 (D19): fuera "Cobrado FY" y "Pendiente de cobro". No es solo que no se
+// gestione el cobro: es que ya NO HAY dato, y fmt0(null) pinta un 0 — que se lee como
+// "no ha cobrado nada", justo lo contrario de "no lo sé". En su sitio van dos datos que sí
+// son hechos y que la RPC ya devolvía sin que nadie los mostrase.
 // ============================================================
 function renderClienteMini(r) {
   return `<div class="cliente-mini">
     <div class="nombre">${esc(r.cliente)}</div>
     <div class="fila"><span>Facturado FY</span><span>${fmt0(r.facturado_fy)} €</span></div>
-    <div class="fila"><span>Cobrado FY (estimación)</span><span>${fmt0(r.cobrado_fy)} €</span></div>
-    <div class="fila"><span>Pendiente de cobro</span><span>${fmt0(r.pendiente_cobro)} €</span></div>
+    <div class="fila"><span>Previsto futuro</span><span>${fmt0(r.previsto_futuro)} €</span></div>
+    <div class="fila"><span>Proyectos activos</span><span>${r.proyectos_activos}</span></div>
     <div class="fila"><span>Propuestas abiertas</span><span>${r.propuestas_abiertas}</span></div>
   </div>`;
 }
@@ -816,8 +820,8 @@ async function pintarCliente360(r) {
     </div></div>
     <div class="c360-kpis">
       <div class="c360-kpi"><div class="label">Facturado FY</div><div class="valor">${fmt0(r.facturado_fy)} €</div></div>
-      <div class="c360-kpi"><div class="label">Cobrado FY</div><div class="valor">${fmt0(r.cobrado_fy)} €</div><div class="nota-estim">estimación</div></div>
-      <div class="c360-kpi"><div class="label">Pendiente de cobro</div><div class="valor">${fmt0(r.pendiente_cobro)} €</div></div>
+      <div class="c360-kpi"><div class="label">Previsto futuro</div><div class="valor">${fmt0(r.previsto_futuro)} €</div></div>
+      <div class="c360-kpi"><div class="label">Proyectos activos</div><div class="valor">${r.proyectos_activos}</div></div>
       <div class="c360-kpi"><div class="label">Propuestas abiertas</div><div class="valor">${r.propuestas_abiertas}</div></div>
     </div>
     <h2 class="section-title">Cronología</h2>
@@ -1006,7 +1010,7 @@ async function cargarIngesta() {
       if (f.casado) {
         return `<div class="informe-guardado">
           <span class="nombre">${cab}<br>
-            <span class="fecha">casa con ${esc(f.placeholder)} — ${esc(f.cliente)} · confianza: ${esc(CONFIANZA_TXT[f.confianza] || f.confianza)}</span>
+            <span class="fecha">casa con ${esc(f.hito)} — ${esc(f.cliente)} · confianza: ${esc(CONFIANZA_TXT[f.confianza] || f.confianza)}</span>
           </span>
           <span style="display:flex;gap:6px">
             <button class="mini verde" data-ing-ok="${f.id}">Confirmar</button>
@@ -1049,7 +1053,7 @@ $('ingLista').addEventListener('click', async (e) => {
 // ============================================================
 // INGESTA DE PROPUESTAS (FASE G.4)
 // ============================================================
-// Diferencia clave con las facturas: una factura se CASA contra un placeholder que ya existe,
+// Diferencia clave con las facturas: una factura se CASA contra un HITO pendiente que ya existe
 // así que basta confirmar/descartar. Una propuesta es un ALTA desde cero, y la extracción
 // acierta el total en ~3 de cada 4 documentos: por eso cliente, fecha, importe y líneas
 // llegan EDITABLES y lo que se manda a la RPC es lo que quede en pantalla, no lo extraído.
