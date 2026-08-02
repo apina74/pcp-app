@@ -405,6 +405,29 @@
   </div>
 </div>
 
+<!-- ===== Confirmación de aceptación de propuesta (FASE 4 de la reforma) =====
+     Maqueta validada por Antonio el 2026-08-02 (maqueta_aceptacion_propuesta.html).
+     Pide expresamente las tres cosas que el automatismo antiguo deducía solo: el documento,
+     la división en proyectos y el calendario de facturación. -->
+<div class="modal-velo" id="acepVelo" hidden></div>
+<div class="modal-caja" id="acepCaja" hidden role="dialog" aria-modal="true" aria-labelledby="acepTitulo">
+  <div class="modal-cab">
+    <div>
+      <strong id="acepTitulo">Confirmar aceptación</strong>
+      <div class="sub" id="acepMeta"></div>
+    </div>
+    <button class="mini gris" id="acepCerrar" aria-label="Cerrar">✕</button>
+  </div>
+  <div class="modal-cuerpo" id="acepCuerpo"></div>
+  <div class="modal-pie">
+    <div id="acepResumen" class="acep-resumen"></div>
+    <div>
+      <button class="gris mini" id="acepCancelar">Cancelar</button>
+      <button class="verde" id="acepConfirmar" disabled>Confirmar aceptación</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js" integrity="sha384-Xl/CUCfJbzsngMp0CFxkmF0VW/8C160IsGujqeQlIhaGxKz2+JsIGORFqtCPeldF" crossorigin="anonymous"></script>
