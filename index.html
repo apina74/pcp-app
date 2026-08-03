@@ -48,11 +48,11 @@
 <div id="navVelo" class="nav-velo" hidden></div>
 <nav class="sidebar" id="navLateral">
   <button class="nav-item activa" data-pantalla="panel">🏠 Dashboard</button>
-  <button class="nav-item" data-pantalla="explorar">📊 Explorar</button>
-  <button class="nav-item" data-pantalla="proyectos">🗂 Proyectos</button>
+  <button class="nav-item" data-pantalla="proyectos">🗂 Work-in-Progress</button>
   <button class="nav-item" data-pantalla="informes">📄 Informes</button>
   <button class="nav-item" data-pantalla="cliente360">🔎 Cliente 360º</button>
-  <button class="nav-item solo-escritorio" data-pantalla="subir">⬆ Subir</button>
+  <button class="nav-item" data-pantalla="explorar">📊 Consultar</button>
+  <button class="nav-item solo-escritorio" data-pantalla="subir">⬆ Carga documentos</button>
 </nav>
 <main class="main">
 
@@ -187,14 +187,41 @@
 
 <!-- ===== Pantalla: Proyectos (Kanban, FASE F) ===== -->
 <section id="pantalla-proyectos" class="pantalla">
-  <div class="filtros">
-    <select id="pEstado"><option value="">— estado —</option></select>
-    <input id="pResponsable" type="text" placeholder="responsable (owner o manager)" style="width:200px">
-    <button id="btnProyectos" class="azul">Buscar</button>
-    <span class="spacer" style="flex:1"></span>
-    <span id="pStatus" class="status"></span>
-  </div>
+  <!-- WIP (m274): sin filtros. La pantalla es una foto visual de lo que está en curso. -->
+  <h2 class="section-title">Work-in-Progress</h2>
+  <p id="wipResumen" class="wip-resumen"></p>
   <div id="proyectosKanban" class="kanban"></div>
+</section>
+
+<!-- ===== Pantalla: Propuesta (03-08-2026) — se llega pinchando una ficha del WIP ===== -->
+<section id="pantalla-propuesta" class="pantalla">
+  <a href="#" id="propVolver" class="volver">← Work-in-Progress</a>
+  <h1 id="propTitulo" class="prop-titulo"></h1>
+  <p id="propSubtitulo" class="prop-sub"></p>
+
+  <div class="caja">
+    <h3>Estado de los proyectos</h3>
+    <button class="lapiz" id="propLapizEstado" title="Registrar el paso siguiente">✏</button>
+    <div id="propProyectos"></div>
+  </div>
+
+  <div class="caja">
+    <h3>Ficha de la propuesta</h3>
+    <button class="lapiz" id="propLapizFicha" title="Editar">✏</button>
+    <div id="propFicha"></div>
+  </div>
+
+  <div class="caja">
+    <h3>Equipo asignado</h3>
+    <button class="lapiz" id="propLapizEquipo" title="Editar">✏</button>
+    <div id="propEquipo"></div>
+  </div>
+
+  <div class="caja">
+    <h3>Notas de la propuesta</h3>
+    <span class="solo-lectura">solo lectura</span>
+    <div id="propCronica"></div>
+  </div>
 </section>
 
 <!-- ===== Pantalla: Informes (FASE F) ===== -->

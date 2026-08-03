@@ -529,7 +529,8 @@ const ESTADOS = {
   facturas:   ['EMITIDA','ANULADA'],
   propuestas: ['OPORTUNIDAD','PROPUESTA_ENVIADA','CERRADA'],
   hitos:      ['previsto','facturado'],
-  proyectos:  ['POR_INICIAR','EN_CURSO','PENDIENTE_INFO','PENDIENTE_REVISION_CLIENTE','PAUSADO','FINISHED','LOST'],
+  // Proyectos (m268, 03-08): en orden de flujo. PAUSADO y LOST son excepcionales.
+  proyectos:  ['PENDIENTE_IDR','PENDIENTE_INFO','ACTIVO','PENDIENTE_REVISION_CLIENTE','COMPLETADO','PAUSADO','LOST'],
 };
 
 let clientesTruncado = false;
@@ -652,44 +653,264 @@ async function buscar() {
 }
 
 // ============================================================
-// PROYECTOS (Kanban, FASE F — antes subpestaña de Explorar)
+// WORK-IN-PROGRESS (03-08-2026; antes «Proyectos»)
+// Una ficha = una PROPUESTA. Si sus proyectos están en estados distintos,
+// sale una ficha por estado. Lo completado y lo perdido no aparecen: el WIP
+// enseña trabajo en curso. Todo el cálculo vive en v_cm_wip (m274).
 // ============================================================
+const WIP_COLUMNAS = [
+  ['PENDIENTE_IDR',              'Pendiente de IDR',           'Sin encargos. Aquí entran los que acabas de ganar, hasta que sale el primer IDR.'],
+  ['PENDIENTE_INFO',             'Pendiente de información',   'Sin encargos.'],
+  ['ACTIVO',                     'Activo',                     'Sin encargos.'],
+  ['PENDIENTE_REVISION_CLIENTE', 'Pendiente revisión cliente', 'Sin encargos.'],
+  ['PAUSADO',                    'Pausado',                    'Sin encargos. Estado excepcional.'],
+];
+
 async function cargarProyectos() {
-  const st = $('pStatus'); st.textContent = 'buscando…'; st.className = 'status';
+  const res = $('wipResumen'); res.textContent = 'cargando…'; res.className = 'wip-resumen';
   try {
-    await cargarClientes(); await cargarUsuarios();
-    const est = $('pEstado').value, resp = $('pResponsable').value.trim().toLowerCase();
-    let q = '/proyecto?select=id,codigo_legible,estado,fecha_inicio,fecha_cierre_estimada,cliente_facturacion_id,client_owner_id,manager_id&order=actualizado_en.desc&limit=500';
-    if (est) q += `&estado=eq.${est}`;
-    let rows = await fetchDetalle(q);
-    const lineas = await fetchDetalle('/proyecto_linea?select=proyecto_id,importe&limit=1000');
-    const importePorProyecto = {};
-    lineas.forEach(l => { importePorProyecto[l.proyecto_id] = (importePorProyecto[l.proyecto_id]||0) + (+l.importe||0); });
-    rows.forEach(r => {
-      const c = clientes[r.cliente_facturacion_id]||{};
-      r.cliente = c.nombre||'—';
-      r.owner = (usuarios[r.client_owner_id]||{}).nombre || '—';
-      r.manager = (usuarios[r.manager_id]||{}).nombre || '—';
-      r.importe = importePorProyecto[r.id] || 0;
-    });
-    if (resp) rows = rows.filter(r => (r.owner||'').toLowerCase().includes(resp) || (r.manager||'').toLowerCase().includes(resp));
+    const rows = await fetchDetalle('/v_cm_wip?select=*&order=orden_estado.asc,pendiente.desc');
     const porEstado = {};
-    ESTADOS.proyectos.forEach(e => porEstado[e] = []);
-    rows.forEach(r => { (porEstado[r.estado] || (porEstado[r.estado] = [])).push(r); });
-    $('proyectosKanban').innerHTML = Object.entries(porEstado).map(([estado, ps]) => `
-      <div class="kanban-col"><h4>${esc(estado)} (${ps.length})</h4>${ps.map(p => `
-        <div class="kanban-card">
-          <span class="cod">${esc(p.codigo_legible)}</span>
-          ${esc(p.cliente)}<br>
-          <span class="imp">${fmt0(p.importe)} €</span>
-          <div class="resp">${esc(p.owner)}${p.manager !== '—' ? ' · ' + esc(p.manager) : ''}</div>
-        </div>`).join('')}
-      </div>`).join('');
-    st.textContent = `${rows.length} proyecto(s)`;
+    WIP_COLUMNAS.forEach(([cod]) => porEstado[cod] = []);
+    rows.forEach(r => (porEstado[r.estado] || (porEstado[r.estado] = [])).push(r));
+
+    $('proyectosKanban').innerHTML = WIP_COLUMNAS.map(([cod, rotulo, vacio]) => {
+      const fichas = porEstado[cod] || [];
+      const suma = fichas.reduce((a, f) => a + (+f.pendiente || 0), 0);
+      return `
+      <div class="kanban-col${cod === 'PAUSADO' ? ' pausado' : ''}">
+        <h4><span>${esc(rotulo)}</span><span class="n">${fichas.length}</span></h4>
+        <div class="suma${suma ? '' : ' cero'}">${suma ? fmt0(suma) + ' €' : '—'}</div>
+        ${fichas.length ? fichas.map(fichaWip).join('') : `<div class="vacia">${esc(vacio)}</div>`}
+      </div>`;
+    }).join('');
+
+    const total = rows.reduce((a, f) => a + (+f.pendiente || 0), 0);
+    res.textContent = `${rows.length} encargo(s) vivo(s) · ${fmt0(total)} € pendientes de facturar`;
+    // Cada ficha abre la pantalla del encargo (delegación, patrón de FASE A)
+    $('proyectosKanban').querySelectorAll('.kanban-card[data-propuesta]').forEach(c =>
+      c.addEventListener('click', () => irAPropuesta(c.dataset.propuesta)));
   } catch (e) {
-    if (e.message === 'SIN_SESION') { mostrarLogin(); st.textContent = 'inicia sesión'; }
-    else { st.textContent = e.message; st.className = 'status error'; }
+    if (e.message === 'SIN_SESION') { mostrarLogin(); res.textContent = 'inicia sesión'; }
+    else { res.textContent = e.message; res.className = 'wip-resumen error'; }
   }
+}
+
+function fichaWip(f) {
+  const titulo = f.despacho
+    ? `<span class="despacho">${esc(f.despacho)}</span><span class="barra">/</span>${esc(f.cliente)}`
+    : esc(f.cliente);
+  const multi = f.n_proyectos > 1 ? ` <span class="pill multi">${f.n_proyectos} proyectos</span>` : '';
+  const desc = f.descripcion
+    ? `<span class="scope">${esc(f.descripcion)}</span>`
+    : `<span class="scope vacio">sin descripción en la base</span>`;
+  const imp = +f.pendiente
+    ? `<span class="imp">${fmt0(f.pendiente)} €</span>`
+    : `<span class="imp cero">todo facturado</span>`;
+  const equipo = [f.gerentes ? `<span class="g">${esc(f.gerentes)}</span>` : '', esc(f.consultores || '')]
+    .filter(Boolean).join(' · ');
+  return `<div class="kanban-card" data-propuesta="${esc(f.propuesta_id)}">
+      <span class="grupo">${titulo}${multi}</span>
+      ${desc}
+      ${imp}
+      ${equipo ? `<span class="equipo">${equipo}</span>` : ''}
+    </div>`;
+}
+
+// ============================================================
+// PANTALLA DE PROPUESTA (03-08-2026, maqueta validada por Antonio)
+// Se abre pinchando una ficha del WIP. Cuatro bloques: línea de estados por
+// proyecto, ficha, equipo y crónica. El estado NO se edita a mano: se registra
+// el hecho y la base lo mueve (m276).
+// ============================================================
+const PASOS = [
+  { rot: 'Propuesta aceptada',         estado: null,                         hecho: null },
+  { rot: 'Pendiente de IDR',           estado: 'PENDIENTE_IDR',              hecho: null },
+  { rot: 'Pendiente de información',   estado: 'PENDIENTE_INFO',             hecho: 'IDR_ENVIADO' },
+  { rot: 'Activo',                     estado: 'ACTIVO',                     hecho: 'INFO_RECIBIDA' },
+  { rot: 'Pendiente revisión cliente', estado: 'PENDIENTE_REVISION_CLIENTE', hecho: 'BORRADOR_FINAL_ENVIADO' },
+  { rot: 'Completado',                 estado: 'COMPLETADO',                 hecho: 'CLIENTE_APRUEBA' },
+];
+const ORDEN_ESTADO = { PENDIENTE_IDR: 1, PENDIENTE_INFO: 2, ACTIVO: 3, PENDIENTE_REVISION_CLIENTE: 4, COMPLETADO: 5 };
+
+let propActual = null, propDatos = null, propEquipoCat = null;
+const modoEdicion = { estado: false, ficha: false, equipo: false };
+
+function irAPropuesta(id) {
+  document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('activa'));
+  document.querySelectorAll('.pantalla').forEach(x => x.classList.remove('activa'));
+  $('pantalla-propuesta').classList.add('activa');
+  window.scrollTo(0, 0);
+  cargarPropuesta(id);
+}
+
+async function cargarPropuesta(id) {
+  propActual = id;
+  Object.keys(modoEdicion).forEach(k => modoEdicion[k] = false);
+  $('propTitulo').textContent = 'cargando…'; $('propSubtitulo').textContent = '';
+  try {
+    const [ficha, proyectos, cronica] = await Promise.all([
+      fetchDetalle(`/v_cm_propuesta_ficha?select=*&propuesta_id=eq.${id}`),
+      fetchDetalle(`/v_cm_propuesta_proyectos?select=*&propuesta_id=eq.${id}&order=codigo.asc`),
+      fetchDetalle(`/v_cm_propuesta_cronica?select=*&propuesta_id=eq.${id}&order=fecha.asc`),
+    ]);
+    if (!ficha.length) { $('propTitulo').textContent = 'no encontrada'; return; }
+    propDatos = { ficha: ficha[0], proyectos, cronica };
+    if (!propEquipoCat) propEquipoCat = await fetchDetalle('/v_cm_equipo_disponible?select=*&order=orden_jerarquico.asc,nombre.asc');
+    pintarPropuesta();
+  } catch (e) {
+    if (e.message === 'SIN_SESION') mostrarLogin();
+    else $('propTitulo').textContent = e.message;
+  }
+}
+
+function pintarPropuesta() {
+  const f = propDatos.ficha, ps = propDatos.proyectos;
+  $('propTitulo').innerHTML = `${esc(f.cliente)} · <span class="desc">${esc(f.descripcion || 'sin descripción')}</span>`;
+  const trozos = [
+    f.fecha_aceptacion ? `Aceptada el <b>${fmtFecha(f.fecha_aceptacion)}</b>` : 'Sin fecha de aceptación',
+    `<b>${fmt0(f.importe_aceptado || f.importe_propuesto)} €</b>`,
+    `${f.n_proyectos} proyecto${f.n_proyectos === 1 ? '' : 's'}`,
+  ];
+  if (f.referidor) trozos.push(`referida por <b>${esc(f.referidor)}</b>`);
+  $('propSubtitulo').innerHTML = trozos.join(' · ');
+
+  // --- línea de estados, una por proyecto ---
+  $('propProyectos').innerHTML = ps.map(p => {
+    const actual = ORDEN_ESTADO[p.estado] || 0;
+    const hechos = p.hechos || {};
+    const pasos = PASOS.map((paso, i) => {
+      const pos = i === 0 ? 0 : ORDEN_ESTADO[paso.estado];
+      const clase = pos < actual ? 'hecho' : (pos === actual ? 'actual' : '');
+      let fecha = '&nbsp;';
+      if (i === 0) fecha = propDatos.ficha.fecha_aceptacion ? fmtFecha(propDatos.ficha.fecha_aceptacion) : '<span class="sin">sin fecha</span>';
+      else if (paso.hecho && hechos[paso.hecho]) fecha = fmtFecha(hechos[paso.hecho]);
+      else if (clase) fecha = '<span class="sin">sin anotar</span>';
+      const pulsable = modoEdicion.estado && paso.hecho && pos > actual;
+      return `<div class="paso ${clase}${pulsable ? ' pulsable' : ''}"${pulsable ? ` data-hecho="${paso.hecho}" data-proy="${esc(p.proyecto_id)}"` : ''}>
+          <div class="bola">${clase === 'hecho' ? '✓' : (clase === 'actual' ? '●' : '')}</div>
+          <div class="rot">${esc(paso.rot)}</div><div class="fec">${fecha}</div>
+        </div>`;
+    }).join('');
+    return `<div class="proy">
+        <div class="tit">${esc(p.cliente)} <span class="cod">${esc(p.codigo)}</span></div>
+        <div class="sub">${fmt0(p.honorarios)} €</div>
+        <div class="linea">${pasos}</div>
+      </div>`;
+  }).join('');
+  if (modoEdicion.estado) {
+    $('propProyectos').insertAdjacentHTML('afterbegin',
+      '<p class="aviso-edicion">Pulsa el paso que quieras registrar. Se anota con la fecha de hoy y el estado se mueve solo.</p>');
+    $('propProyectos').querySelectorAll('.paso.pulsable').forEach(el =>
+      el.addEventListener('click', () => registrarHecho(el.dataset.proy, el.dataset.hecho)));
+  }
+
+  // --- ficha ---
+  const campos = [
+    ['Fecha de aceptación', f.fecha_aceptacion ? fmtFecha(f.fecha_aceptacion) : '—'],
+    ['Cliente de servicio', f.cliente_servicio || '—'],
+    ['Referida por', f.referidor || '—'],
+    ['Importe aceptado', fmt0(f.importe_aceptado || 0) + ' €'],
+    ['Enviada', f.fecha_envio ? fmtFecha(f.fecha_envio) : '—'],
+  ];
+  const filas = ps.map(p => `<tr>
+      <td class="n">${esc(p.factura_a || '—')}</td>
+      <td>${p.num_auxadi ? `<span class="mono">${esc(p.num_auxadi)}</span>` : '<span class="sinnum">sin número</span>'}</td>
+      <td>${fmt0(p.honorarios)} €</td>
+      <td>${+p.facturado ? fmt0(p.facturado) + ' €' + (p.fecha_facturado ? ` <span class="mono">· ${fmtFecha(p.fecha_facturado)}</span>` : '') : '—'}</td>
+      <td>${+p.pendiente ? fmt0(p.pendiente) + ' €' : '—'}</td>
+      <td>${p.fecha_estimada ? `<span class="mono">${fmtFecha(p.fecha_estimada)}</span>` : '—'}</td>
+    </tr>`).join('');
+  $('propFicha').innerHTML = `
+    <div class="campos">${campos.map(([k, v]) => `<div class="campo"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`).join('')}</div>
+    <table><tr><th>Se factura a</th><th>Nº cliente Auxadi</th><th>Honorarios</th><th>Facturado</th><th>Pendiente</th><th>Fecha estimada</th></tr>${filas}</table>
+    ${modoEdicion.ficha ? `
+      <div class="edicion">
+        <label class="k">Descripción de los servicios</label>
+        <textarea id="propEditDesc" rows="3">${esc(f.descripcion || '')}</textarea>
+        <label class="k">Fecha de aceptación</label>
+        <input id="propEditFecha" type="date" value="${f.fecha_aceptacion || ''}">
+        ${ps.filter(p => !p.num_auxadi).map(p => `
+          <label class="k">Nº cliente Auxadi de ${esc(p.factura_a)}</label>
+          <input class="propEditNum" data-proy="${esc(p.proyecto_id)}" type="text" inputmode="numeric" placeholder="solo dígitos">`).join('')}
+        <div><button id="propGuardarFicha" class="azul">Guardar</button></div>
+      </div>` : `<p class="desc-larga"><b>Servicios:</b> ${esc(f.descripcion || 'sin descripción registrada')}</p>`}`;
+  if (modoEdicion.ficha) $('propGuardarFicha').onclick = guardarFicha;
+
+  // --- equipo ---
+  const asignados = { GERENTE: new Set(), CONSULTOR: new Set() };
+  ps.forEach(p => {
+    (p.gerentes || '').split(', ').filter(Boolean).forEach(n => asignados.GERENTE.add(n));
+    (p.consultores || '').split(', ').filter(Boolean).forEach(n => asignados.CONSULTOR.add(n));
+  });
+  const columna = (cat, rotulo) => {
+    const gente = propEquipoCat.filter(u => u.categoria === cat);
+    const fuera = [...asignados[cat]].filter(n => !gente.some(u => u.nombre === n));
+    const btn = (nombre, id, esFuera) =>
+      `<button class="btn-p${asignados[cat].has(nombre) ? ' on' : ''}${esFuera ? ' fuera' : ''}"
+        ${modoEdicion.equipo && !esFuera ? `data-cat="${cat}" data-nombre="${esc(nombre)}" data-id="${esc(id)}"` : 'disabled'}>${esc(nombre)}</button>`;
+    return `<div><h4>${esc(rotulo)}</h4><div class="btns">
+        ${gente.map(u => btn(u.nombre, u.id, false)).join('')}
+        ${fuera.map(n => btn(n, '', true)).join('')}
+      </div></div>`;
+  };
+  $('propEquipo').innerHTML = `<div class="equipo">${columna('GERENTE', 'Gerentes')}${columna('CONSULTOR', 'Consultores')}</div>
+    ${modoEdicion.equipo ? `<p class="aviso-edicion">Los cambios se aplican a los ${ps.length} proyecto(s) del encargo.</p>
+      <div><button id="propGuardarEquipo" class="azul">Guardar equipo</button></div>` : ''}`;
+  if (modoEdicion.equipo) {
+    $('propEquipo').querySelectorAll('.btn-p[data-cat]').forEach(b =>
+      b.addEventListener('click', () => b.classList.toggle('on')));
+    $('propGuardarEquipo').onclick = guardarEquipo;
+  }
+
+  // --- crónica ---
+  $('propCronica').innerHTML = propDatos.cronica.length
+    ? `<ul class="cron">${propDatos.cronica.map(c => `<li>
+        <span class="f">${fmtFecha(c.fecha)}</span>
+        <span class="q"><b>${esc(c.titulo)}</b>${c.detalle ? ' — ' + esc(c.detalle) : ''}
+        <span class="org">· ${esc(c.origen)}</span></span></li>`).join('')}</ul>`
+    : '<p class="vacia">Sin anotaciones registradas.</p>';
+}
+
+const fmtFecha = (f) => { if (!f) return '—'; const [a, m, d] = f.slice(0, 10).split('-'); return `${d}-${m}-${a.slice(2)}`; };
+
+async function registrarHecho(proyectoId, hecho) {
+  try {
+    const r = await rpc('cm_registrar_hecho_proyecto', { p_proyecto_id: proyectoId, p_tipo_evento: hecho, p_fecha: null, p_nota: null });
+    if (!r?.ok) { alert(r?.error || 'no se pudo registrar'); return; }
+    await cargarPropuesta(propActual);
+  } catch (e) { alert(e.message); }
+}
+
+async function guardarFicha() {
+  try {
+    const desc = $('propEditDesc').value.trim(), fecha = $('propEditFecha').value || null;
+    const r = await rpc('cm_actualizar_ficha_propuesta', { p_propuesta_id: propActual, p_descripcion: desc, p_fecha_aceptacion: fecha });
+    if (!r?.ok) { alert(r?.error || 'no se pudo guardar'); return; }
+    for (const inp of document.querySelectorAll('.propEditNum')) {
+      const num = inp.value.trim(); if (!num) continue;
+      const p = propDatos.proyectos.find(x => x.proyecto_id === inp.dataset.proy);
+      const ent = await fetchDetalle(`/proyecto?select=cliente_facturacion_id&id=eq.${p.proyecto_id}`);
+      const r2 = await rpc('cm_actualizar_num_cliente_auxadi', { p_entidad_id: ent[0].cliente_facturacion_id, p_numero: num });
+      if (!r2?.ok) { alert(r2?.error || 'no se pudo guardar el número'); return; }
+    }
+    modoEdicion.ficha = false;
+    await cargarPropuesta(propActual);
+  } catch (e) { alert(e.message); }
+}
+
+async function guardarEquipo() {
+  try {
+    for (const cat of ['GERENTE', 'CONSULTOR']) {
+      const ids = [...$('propEquipo').querySelectorAll(`.btn-p.on[data-cat="${cat}"]`)].map(b => b.dataset.id);
+      for (const p of propDatos.proyectos) {
+        const r = await rpc('cm_asignar_equipo', { p_proyecto_id: p.proyecto_id, p_papel: cat, p_usuarios: ids });
+        if (!r?.ok) { alert(r?.error || 'no se pudo guardar el equipo'); return; }
+      }
+    }
+    modoEdicion.equipo = false;
+    await cargarPropuesta(propActual);
+  } catch (e) { alert(e.message); }
 }
 
 // E1/E2: cualquier valor que venga de datos (denominaciones sociales, descripciones de
@@ -1971,8 +2192,23 @@ document.addEventListener('DOMContentLoaded', () => {
   $('btnBuscar').onclick = buscar;
   $('fCliente').addEventListener('keydown', e => { if (e.key === 'Enter') buscar(); });
   $('btnCsv').onclick = exportarCsv;
-  $('pEstado').innerHTML = '<option value="">— estado —</option>' + ESTADOS.proyectos.map(e => `<option>${e}</option>`).join('');
-  $('btnProyectos').onclick = cargarProyectos;
+  // Work-in-Progress: sin filtros ni botón de buscar (03-08-2026), se carga al entrar.
+
+  // Pantalla de propuesta: volver al WIP y los tres lápices de edición
+  $('propVolver').onclick = (e) => {
+    e.preventDefault();
+    document.querySelectorAll('.pantalla').forEach(x => x.classList.remove('activa'));
+    $('pantalla-proyectos').classList.add('activa');
+    document.querySelector('.nav-item[data-pantalla="proyectos"]').classList.add('activa');
+    cargarProyectos();
+  };
+  [['propLapizEstado', 'estado'], ['propLapizFicha', 'ficha'], ['propLapizEquipo', 'equipo']].forEach(([boton, clave]) => {
+    $(boton).onclick = () => {
+      modoEdicion[clave] = !modoEdicion[clave];
+      $(boton).classList.toggle('activo', modoEdicion[clave]);
+      pintarPropuesta();
+    };
+  });
   $('btnElegir').onclick = () => $('inputFicheros').click();
   $('inputFicheros').addEventListener('change', e => subirFicheros(e.target.files));
   const zona = $('zonaSubir');

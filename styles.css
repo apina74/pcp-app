@@ -212,17 +212,102 @@ select option { background: #0c0e1e; }
 .timeline .item::before { content: ''; position: absolute; left: -21px; top: 4px; width: 9px; height: 9px; border-radius: 50%; background: var(--navy-800); box-shadow: var(--glow-cian); }
 .timeline .fecha { color: var(--gris-txt); font-family: 'Share Tech Mono', monospace; font-size: 10.5px; }
 
-/* ---------- Proyectos: Kanban ---------- */
-.kanban { display: grid; grid-auto-flow: column; grid-auto-columns: 220px; gap: 12px; overflow-x: auto; padding-bottom: 8px; }
-.kanban-col { background: #0a0c1c; border: 1px solid var(--borde); border-radius: 8px; padding: 8px; }
-.kanban-col h4 { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--gris-txt); margin: 2px 4px 8px; font-weight: 700; }
+/* ---------- Work-in-Progress: Kanban de encargos (03-08-2026) ----------
+   Una tarjeta = una propuesta. Cuatro líneas: cliente (o «despacho / cliente»),
+   descripción del encargo, pendiente de facturar y equipo. Sin código interno. */
+.wip-resumen { color: var(--gris-txt); font-size: 12.5px; margin: 0 0 14px; }
+.wip-resumen.error { color: var(--rojo); }
+.kanban { display: grid; grid-auto-flow: column; grid-auto-columns: 268px; gap: 12px; overflow-x: auto; padding-bottom: 8px; align-items: start; }
+.kanban-col { background: #0a0c1c; border: 1px solid var(--borde); border-radius: 10px; padding: 9px; }
+.kanban-col.pausado { opacity: .72; }
+.kanban-col h4 { font-size: 10px; text-transform: uppercase; letter-spacing: .09em; color: var(--gris-txt); margin: 2px 4px 4px; font-weight: 700; display: flex; justify-content: space-between; gap: 6px; }
+.kanban-col h4 .n { color: var(--tinta-2); }
+.kanban-col .suma { font-size: 11px; color: var(--verde); margin: 0 4px 9px; font-weight: 600; }
+.kanban-col .suma.cero { color: var(--gris-txt); font-weight: 400; }
+.kanban-col .vacia { color: var(--gris-txt); font-size: 12px; font-style: italic; padding: 10px 4px; }
 .kanban-card {
-  background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 6px;
-  padding: 8px 9px; margin-bottom: 8px; font-size: 11.5px; box-shadow: var(--sombra);
+  background: var(--tarjeta); border: 1px solid var(--borde); border-left: 2px solid var(--navy-800);
+  border-radius: 8px; padding: 9px 10px; margin-bottom: 8px; box-shadow: var(--sombra);
+  cursor: pointer; transition: var(--trans);
 }
-.kanban-card .cod { font-family: 'Share Tech Mono', monospace; color: var(--navy-800); font-size: 10.5px; display: block; }
-.kanban-card .imp { color: var(--verde); font-weight: 600; }
-.kanban-card .resp { color: var(--gris-txt); font-size: 10.5px; margin-top: 2px; }
+.kanban-card:hover { border-color: rgba(0,240,255,.4); transform: translateY(-1px); box-shadow: var(--sombra-alta); }
+.kanban-card .grupo { color: var(--navy-800); font-weight: 700; font-size: 14px; display: block; line-height: 1.25; }
+.kanban-card .grupo .despacho { color: var(--tinta-2); font-weight: 600; font-size: 12.5px; }
+.kanban-card .grupo .barra { color: var(--gris-txt); font-weight: 400; margin: 0 3px; }
+.kanban-card .scope { color: var(--tinta-2); font-size: 12.5px; margin: 2px 0 6px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.kanban-card .scope.vacio { color: var(--naranja); font-style: italic; opacity: .75; }
+.kanban-card .imp { color: var(--verde); font-weight: 700; font-size: 13.5px; }
+.kanban-card .imp.cero { color: var(--gris-txt); font-weight: 400; font-size: 12px; }
+.kanban-card .equipo { color: var(--gris-txt); font-size: 11.5px; margin-top: 4px; display: block; }
+.kanban-card .equipo .g { color: var(--tinta-2); }
+
+/* ---------- Pantalla de propuesta (03-08-2026) ---------- */
+.volver { color: var(--gris-txt); font-size: 12px; text-decoration: none; display: inline-block; margin-bottom: 10px; }
+.volver:hover { color: var(--navy-800); }
+.prop-titulo { font-family: 'Orbitron', 'Segoe UI', sans-serif; font-size: 24px; margin: 0 0 2px; color: var(--tinta); text-transform: none; letter-spacing: .01em; }
+.prop-titulo .desc { color: var(--navy-800); }
+.prop-sub { color: var(--gris-txt); font-size: 12.5px; margin: 0 0 20px; }
+.prop-sub b { color: var(--tinta-2); font-weight: 600; }
+.caja { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; position: relative; }
+.caja h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--gris-txt); margin: 0 0 12px; font-weight: 700; }
+.lapiz { position: absolute; top: 12px; right: 12px; background: none; border: 1px solid var(--borde); color: var(--gris-txt); border-radius: 6px; width: 26px; height: 26px; cursor: pointer; font-size: 13px; line-height: 1; }
+.lapiz:hover, .lapiz.activo { border-color: var(--navy-800); color: var(--navy-800); }
+.lapiz.activo { background: rgba(0,240,255,.12); }
+.solo-lectura { position: absolute; top: 16px; right: 14px; font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--gris-txt); }
+.aviso-edicion { color: var(--ambar); font-size: 12px; margin: 0 0 10px; }
+
+.proy { margin-bottom: 22px; }
+.proy:last-child { margin-bottom: 4px; }
+.proy .tit { color: var(--tinta); font-weight: 700; font-size: 14.5px; }
+.proy .tit .cod { color: var(--gris-txt); font-family: 'Share Tech Mono', monospace; font-size: 11px; margin-left: 8px; }
+.proy .sub { color: var(--verde); font-size: 12.5px; font-weight: 600; margin-bottom: 14px; }
+.linea { display: flex; align-items: flex-start; padding: 0 4px; }
+.paso { flex: 1; text-align: center; position: relative; min-width: 0; }
+.paso::before { content: ''; position: absolute; top: 11px; left: -50%; width: 100%; height: 2px; background: var(--borde); }
+.paso:first-child::before { display: none; }
+.paso.hecho::before, .paso.actual::before { background: var(--navy-800); box-shadow: 0 0 6px rgba(0,240,255,.4); }
+.paso .bola { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--borde); background: var(--fondo); margin: 0 auto 6px; position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--gris-txt); }
+.paso.hecho .bola { border-color: var(--navy-800); background: rgba(0,240,255,.15); color: var(--navy-800); }
+.paso.actual .bola { border-color: var(--ambar); background: rgba(255,214,10,.15); color: var(--ambar); box-shadow: 0 0 0 4px rgba(255,214,10,.10); }
+.paso.pulsable { cursor: pointer; }
+.paso.pulsable .bola { border-color: var(--verde); border-style: dashed; }
+.paso.pulsable:hover .bola { background: rgba(10,255,157,.18); color: var(--verde); }
+.paso .rot { font-size: 10.5px; color: var(--gris-txt); line-height: 1.2; padding: 0 3px; }
+.paso.hecho .rot, .paso.actual .rot { color: var(--tinta-2); }
+.paso .fec { font-size: 10px; color: var(--gris-txt); font-family: 'Share Tech Mono', monospace; margin-top: 2px; }
+.paso .fec .sin { color: #4a5578; font-style: italic; }
+
+.campos { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px 18px; margin-bottom: 14px; }
+.campo .k { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--gris-txt); display: block; }
+.campo .v { color: var(--tinta); font-size: 13.5px; }
+.desc-larga { color: var(--tinta-2); font-size: 13px; border-top: 1px solid rgba(28,35,66,.6); padding-top: 10px; margin-top: 10px; }
+.sinnum { color: var(--naranja); font-style: italic; font-size: 11.5px; opacity: .8; }
+.edicion { border-top: 1px solid rgba(28,35,66,.6); margin-top: 12px; padding-top: 10px; }
+.edicion .k { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--gris-txt); display: block; margin: 8px 0 3px; }
+.edicion textarea, .edicion input { width: 100%; max-width: 520px; }
+
+.equipo { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.equipo h4 { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--gris-txt); margin: 0 0 8px; }
+.btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.btn-p { background: rgba(255,255,255,.02); border: 1px solid var(--borde); color: var(--gris-txt); border-radius: 20px; padding: 4px 12px; font: inherit; font-size: 12.5px; cursor: pointer; }
+.btn-p[disabled] { cursor: default; }
+.btn-p:not([disabled]):hover { border-color: var(--tinta-2); color: var(--tinta-2); }
+.btn-p.on { border-color: var(--navy-800); color: var(--navy-800); background: rgba(0,240,255,.12); box-shadow: 0 0 8px rgba(0,240,255,.25); font-weight: 600; }
+.btn-p.on.fuera { border-color: var(--morado); color: #d9a5ff; background: rgba(176,38,255,.12); box-shadow: none; }
+
+.cron { list-style: none; margin: 0; padding: 0; }
+.cron li { display: flex; gap: 12px; padding: 6px 0; border-top: 1px solid rgba(28,35,66,.6); font-size: 13px; }
+.cron li:first-child { border-top: 0; }
+.cron .f { font-family: 'Share Tech Mono', monospace; font-size: 11.5px; color: var(--gris-txt); flex: 0 0 78px; }
+.cron .q { color: var(--tinta-2); }
+.cron .q b { color: var(--tinta); font-weight: 600; }
+.cron .org { color: var(--gris-txt); font-size: 10.5px; margin-left: 6px; }
+
+@media (max-width: 720px) {
+  .equipo { grid-template-columns: 1fr; }
+  .linea { overflow-x: auto; }
+  .paso { min-width: 92px; }
+}
 
 /* ---------- Informes ---------- */
 .sql-box {
@@ -447,8 +532,9 @@ table.datos tfoot td { font-weight: 700; background: #0a0c1c; border-top: 1px so
 .pill.previsto { border-color: rgba(255,214,10,.5); color: var(--ambar); } .pill.facturable { border-color: rgba(0,240,255,.5); color: var(--navy-800); } .pill.facturado { border-color: rgba(10,255,157,.5); color: var(--verde); }
 .pill.alta { border-color: rgba(255,56,96,.55); color: var(--rojo); } .pill.media { border-color: rgba(255,214,10,.5); color: var(--ambar); } .pill.baja { border-color: #333c66; color: #8b96c4; }
 .pill.cobrado { border-color: rgba(10,255,157,.5); color: var(--verde); }
-.pill.EN_CURSO { border-color: rgba(0,240,255,.5); color: var(--navy-800); } .pill.FINISHED { border-color: rgba(10,255,157,.5); color: var(--verde); }
-.pill.POR_INICIAR { border-color: #333c66; color: #8b96c4; } .pill.PAUSADO { border-color: #333c66; color: #8b96c4; } .pill.LOST { border-color: rgba(255,56,96,.55); color: var(--rojo); }
+/* Estados de proyecto (m268: ACTIVO, COMPLETADO y PENDIENTE_IDR sustituyen a EN_CURSO, FINISHED y POR_INICIAR) */
+.pill.ACTIVO { border-color: rgba(0,240,255,.5); color: var(--navy-800); } .pill.COMPLETADO { border-color: rgba(10,255,157,.5); color: var(--verde); }
+.pill.PENDIENTE_IDR { border-color: #333c66; color: #8b96c4; } .pill.PAUSADO { border-color: #333c66; color: #8b96c4; } .pill.LOST { border-color: rgba(255,56,96,.55); color: var(--rojo); }
 .pill.PENDIENTE_INFO { border-color: rgba(255,214,10,.5); color: var(--ambar); } .pill.PENDIENTE_REVISION_CLIENTE { border-color: rgba(255,214,10,.5); color: var(--ambar); }
 
 /* ---------- Subir documentos ---------- */
