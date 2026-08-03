@@ -521,16 +521,94 @@ function pintarChart(rows) {
 // ============================================================
 // EXPLORAR (detalle con sesión) + acciones
 // ============================================================
-let sub = 'facturas', clientes = {}, usuarios = {};   // id -> {nombre, nif} / id -> {nombre}
+let sub = 'propuestas', clientes = {}, usuarios = {};   // id -> {nombre, nif} / id -> {nombre}
 let ultimaFilas = [], ultimaCols = [];
 
-const ESTADOS = {
-  // Reforma 2026-08 (D18/D19): dos estados en cada máquina, ni uno más.
-  facturas:   ['EMITIDA','ANULADA'],
-  propuestas: ['OPORTUNIDAD','PROPUESTA_ENVIADA','CERRADA'],
-  hitos:      ['previsto','facturado'],
-  // Proyectos (m268, 03-08): en orden de flujo. PAUSADO y LOST son excepcionales.
-  proyectos:  ['PENDIENTE_IDR','PENDIENTE_INFO','ACTIVO','PENDIENTE_REVISION_CLIENTE','COMPLETADO','PAUSADO','LOST'],
+// Cada fila abre la ficha de la propuesta que la engloba (m284 expone propuesta_id en las
+// cuatro vistas). El vínculo se sigue, nunca se deduce del código: PRJ-FY26-078 cuelga de
+// PROP-FY26-084, y dos proyectos distintos pueden colgar de la misma propuesta.
+const btnFicha = (v) => v ? `<button class="ficha-btn" data-prop="${esc(v)}" title="Abrir la ficha de la propuesta">◧ ficha</button>` : '';
+const celda = (clase) => (v) => v ? `<span class="${clase}">${esc(v)}</span>` : '<span class="celda-vacia">—</span>';
+const accionesPropuesta = (r) => {
+  if (r.estado === 'PROPUESTA_ENVIADA') return ''
+    + `<button class="verde mini" data-accion="aceptar" data-id="${r.propuesta_id}" data-ref="${esc(r.codigo||'')}">✓ aceptar</button> `
+    + `<button class="azul mini" data-accion="seguimiento" data-id="${r.propuesta_id}" data-ref="${esc(r.codigo||'')}">📞 seguir</button> `
+    + `<button class="gris mini" data-accion="cerrar-no" data-id="${r.propuesta_id}" data-ref="${esc(r.codigo||'')}">✗ cerrar</button>`;
+  if (r.estado === 'OPORTUNIDAD') return ''
+    + `<button class="gris mini" data-accion="cerrar-no" data-id="${r.propuesta_id}" data-ref="${esc(r.codigo||'')}">✗ perdida</button>`;
+  return '';
+};
+
+// Las cuatro vistas de la pantalla, en el orden del encargo (03-08). Todas leen de las vistas
+// v_cm_consultar_* (m284/m286), que ya traen grupo, cliente y referidor resueltos y el par
+// vive_desde/vive_hasta con el que se filtra por ejercicio.
+// ⚠ Estados: «cerrada» se descompone en ACEPTADA / RECHAZADA / PERDIDA — las 78 propuestas
+// cerradas compartían etiqueta y no se podían distinguir.
+const VISTAS = {
+  propuestas: {
+    ruta: '/v_cm_consultar_propuestas', orden: 'fecha_envio.desc.nullslast', fecha: 'fecha_envio',
+    estados: { OPORTUNIDAD:'Oportunidad', PROPUESTA_ENVIADA:'Enviada', ACEPTADA:'Aceptada', RECHAZADA:'Rechazada', PERDIDA:'Perdida' },
+    cols: [
+      // La ficha solo en las aceptadas: sin proyectos ni crónica estaría vacía.
+      { k:'propuesta_id', t:'Ficha', html:true, f:(v,r) => r.estado === 'ACEPTADA' ? btnFicha(v) : '' },
+      { k:'codigo', t:'Código' },
+      { k:'grupo', t:'Grupo', html:true, f:celda('celda-grupo') },
+      { k:'cliente', t:'Cliente', cls:'recorta' },
+      { k:'estado', t:'Estado', pill:true },
+      { k:'fecha_envio', t:'Envío' }, { k:'fecha_aceptacion', t:'Aceptación' },
+      { k:'importe', t:'Importe €', num:true },
+      { k:'_acc', t:'', html:true, f:(v,r) => accionesPropuesta(r) },
+    ],
+  },
+  proyectos: {
+    ruta: '/v_cm_consultar_proyectos', orden: 'codigo.asc', fecha: 'vive_desde',
+    estados: { PENDIENTE_IDR:'Pendiente de IDR', PENDIENTE_INFO:'Pendiente de información', ACTIVO:'Activo',
+               PENDIENTE_REVISION_CLIENTE:'Pendiente de revisión', COMPLETADO:'Completado', PAUSADO:'Pausado', LOST:'Perdido' },
+    cols: [
+      { k:'propuesta_id', t:'Ficha', html:true, f:btnFicha },
+      { k:'codigo', t:'Código' },
+      { k:'grupo', t:'Grupo', html:true, f:celda('celda-grupo') },
+      { k:'cliente', t:'Cliente', cls:'recorta' },
+      { k:'referidor', t:'Referidor', html:true, cls:'recorta', f:celda('celda-ref') },
+      { k:'estado', t:'Estado', pill:true },
+      { k:'descripcion', t:'Descripción', cls:'desc' },
+      { k:'importe', t:'Importe €', num:true },
+      { k:'facturado', t:'Facturado €', num:true },
+      { k:'pendiente', t:'Pendiente €', num:true },
+    ],
+  },
+  hitos: {
+    ruta: '/v_cm_consultar_hitos', orden: 'fecha_prevista.asc', fecha: 'fecha_prevista',
+    estados: { previsto:'Previsto', facturado:'Facturado' },
+    cols: [
+      { k:'propuesta_id', t:'Ficha', html:true, f:btnFicha },
+      { k:'codigo', t:'Hito' }, { k:'proyecto', t:'Proyecto' },
+      { k:'grupo', t:'Grupo', html:true, f:celda('celda-grupo') },
+      { k:'cliente', t:'Cliente', cls:'recorta' },
+      { k:'descripcion', t:'Descripción', cls:'desc' },
+      { k:'estado', t:'Estado', pill:true },
+      { k:'fecha_prevista', t:'Prevista' },
+      { k:'importe', t:'Importe €', num:true },
+      { k:'_acc', t:'', html:true, f:(v,r) => r.estado === 'previsto'
+          ? `<button class="azul mini" data-accion="mover-hito" data-id="${r.hito_id}" data-ref="${esc(r.codigo||'')}" data-fecha="${esc(r.fecha_prevista||'')}">📅 mover</button>` : '' },
+    ],
+  },
+  facturas: {
+    ruta: '/v_cm_consultar_facturas', orden: 'fecha_emision.desc', fecha: 'fecha_emision',
+    estados: { EMITIDA:'Emitida', ANULADA:'Anulada' },
+    cols: [
+      { k:'propuesta_id', t:'Ficha', html:true, f:btnFicha },
+      { k:'numero', t:'Número', f:(v,r) => v || r.codigo_legible },
+      { k:'grupo', t:'Grupo', html:true, f:celda('celda-grupo') },
+      { k:'cliente', t:'Cliente', cls:'recorta' },
+      { k:'fecha_emision', t:'Emisión' },
+      { k:'estado', t:'Estado', pill:true },
+      { k:'base', t:'Base €', num:true }, { k:'total', t:'Total €', num:true },
+      // Reforma 2026-08 (D17/D19): lo que distingue una factura real de un apunte sin respaldo
+      // es el DOCUMENTO, no el estado.
+      { k:'tiene_documento', t:'Documento', f:(v) => v ? 'sí' : '—' },
+    ],
+  },
 };
 
 let clientesTruncado = false;
@@ -551,101 +629,178 @@ async function cargarUsuarios() {
 }
 
 function ponerEstados() {
+  const e = VISTAS[sub].estados;
   $('fEstado').innerHTML = '<option value="">— estado —</option>' +
-    ESTADOS[sub].map(e => `<option>${e}</option>`).join('');
+    Object.entries(e).map(([k, r]) => `<option value="${k}">${r}</option>`).join('');
 }
 document.querySelectorAll('.subtab').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('.subtab').forEach(x => x.classList.remove('activa'));
   b.classList.add('activa'); sub = b.dataset.sub; ponerEstados(); $('expTabla').innerHTML = '';
+  $('expStatus').textContent = '';
+  // El catálogo de los filtros cambia con la vista (m289): lo elegido para una puede no existir
+  // en la siguiente, así que se limpia en vez de arrastrar una selección que daría vacío.
+  ['cliente','grupo','referidor'].forEach(c => selFiltro[c] = []);
+  document.querySelectorAll('#pantalla-explorar .multi').forEach(m => {
+    m.querySelectorAll('.chip').forEach(c => c.remove());
+    m.querySelector('input').placeholder = m.dataset.campo + '…';
+    m.querySelector('.sug').classList.remove('abierta');
+  });
 }));
+
+// ---- Filtros de selección múltiple (cliente / grupo / referidor) ----
+// Con 128 entidades una lista plana no sirve: se teclea y se eligen varias, que suman.
+const selFiltro = { cliente: [], grupo: [], referidor: [] };
+const CLASE_CHIP = { cliente: '', grupo: 'gr', referidor: 'rf' };
+let catPorVista = {}, catClientes = null, cargando = {}, ejercicios = null, fySel = null;
+
+// El catálogo de cada filtro sale de la PROPIA VISTA que se va a filtrar (m289): el desplegable
+// de Facturas solo ofrece quien tiene facturas (56 clientes, no 74). Si una opción está en la
+// lista, hay al menos una fila detrás — no se puede elegir algo que devuelva vacío.
+async function cargarCatalogo(vista) {
+  if (catPorVista[vista]) return catPorVista[vista];
+  if (cargando[vista]) return cargando[vista];
+  cargando[vista] = (async () => {
+    const filas = await fetchDetalle(`/v_cm_catalogo_filtros?select=tipo,id,nombre&vista=eq.${vista}&order=nombre.asc`);
+    const c = { cliente: [], grupo: [], referidor: [] };
+    filas.forEach(f => { if (c[f.tipo]) c[f.tipo].push({ id: f.id, nombre: f.nombre }); });
+    catPorVista[vista] = c;
+    return c;
+  })().finally(() => { delete cargando[vista]; });
+  return cargando[vista];
+}
+
+// Cliente 360º filtra sobre todos los clientes con actividad, no sobre una vista concreta.
+async function cargarClientesFiltro() {
+  if (catClientes) return catClientes;
+  const cli = await fetchDetalle('/v_cm_clientes?select=id,nombre&order=nombre.asc');
+  catClientes = cli.map(x => ({ id: x.id, nombre: x.nombre }));
+  return catClientes;
+}
+
+async function cargarEjercicios() {
+  if (ejercicios) return ejercicios;
+  ejercicios = await fetchDetalle('/v_cm_ejercicios?select=*&order=fecha_inicio.asc');
+  // Los botones de ejercicio salen de la base: FY27 aparecerá solo cuando exista.
+  $('fyBotones').innerHTML = ejercicios.map(f => `<button class="fy" data-fy="${esc(f.codigo)}">${esc(f.codigo)}</button>`).join(' ');
+  $('fyBotones').querySelectorAll('.fy').forEach(b => b.addEventListener('click', () => {
+    const ya = b.classList.contains('on');
+    $('fyBotones').querySelectorAll('.fy').forEach(x => x.classList.remove('on'));
+    if (!ya) { b.classList.add('on'); fySel = b.dataset.fy; } else fySel = null;
+    buscar().catch(() => {});
+  }));
+  return ejercicios;
+}
+
+// opciones.store    → dónde guarda la selección (por defecto, los filtros de Consultar)
+// opciones.uni      → selección única: sustituye lo elegido y cierra la lista
+// opciones.alCambiar→ qué hacer al cambiar la selección
+// opciones.vacio    → texto del campo cuando no hay nada elegido
+function montarMulti(m, opciones = {}) {
+  const campo = m.dataset.campo, caja = m.querySelector('.caja'),
+        inp = m.querySelector('input'), sug = m.querySelector('.sug');
+  const store = opciones.store || selFiltro;
+  const uni = !!opciones.uni;
+  const alCambiar = opciones.alCambiar || (() => buscar().catch(() => {}));
+  const vacio = opciones.vacio || (campo + '…');
+  // De dónde salen las opciones: por defecto, el catálogo de la vista activa de Consultar.
+  const fuente = opciones.fuente || (async () => (await cargarCatalogo(sub))[campo]);
+  const pintar = () => {
+    caja.querySelectorAll('.chip').forEach(c => c.remove());
+    store[campo].forEach(o => {
+      const c = document.createElement('span');
+      c.className = 'chip ' + (CLASE_CHIP[campo] || '');
+      c.innerHTML = `<span></span><b>×</b>`;
+      c.querySelector('span').textContent = o.nombre;      // textContent: nunca interpolar
+      c.querySelector('b').onclick = (ev) => { ev.stopPropagation();
+        store[campo] = store[campo].filter(x => x.id !== o.id); pintar(); alCambiar(); };
+      caja.insertBefore(c, inp);
+    });
+    inp.placeholder = store[campo].length ? '' : vacio;
+  };
+  // La lista se despliega al pulsar, sin necesidad de teclear, y NO se cierra al marcar: es
+  // multiselección, así que se marcan varias seguidas y se cierra con Escape o pulsando fuera.
+  // Escribir solo filtra las opciones.
+  let lista = null;   // catálogo cargado para el contexto actual
+  const pintarLista = () => {
+    const q = inp.value.trim().toLowerCase();
+    const marcado = (o) => store[campo].some(s => s.id === o.id);
+    const op = (lista || []).filter(o => o.nombre.toLowerCase().includes(q)).slice(0, 60);
+    sug.innerHTML = '';
+    if (!op.length) { sug.innerHTML = '<div class="vacio">sin coincidencias</div>'; return; }
+    op.forEach(o => {
+      const d = document.createElement('div');
+      d.className = 'opcion' + (marcado(o) ? ' marcada' : '');
+      const c = document.createElement('span'); c.className = 'tick'; c.textContent = marcado(o) ? '✓' : '';
+      const t = document.createElement('span'); t.textContent = o.nombre;
+      d.append(c, t);
+      d.onclick = (ev) => {
+        ev.stopPropagation();
+        if (uni) {
+          // Selección única: sustituye lo elegido y cierra, como cualquier desplegable normal.
+          store[campo] = marcado(o) ? [] : [o];
+          inp.value = ''; pintar(); sug.classList.remove('abierta'); alCambiar();
+          return;
+        }
+        if (marcado(o)) store[campo] = store[campo].filter(s => s.id !== o.id);
+        else store[campo].push(o);
+        pintar(); pintarLista(); alCambiar();   // multiselección: la lista sigue abierta
+      };
+      sug.appendChild(d);
+    });
+  };
+  const abrir = async () => {
+    sug.classList.add('abierta');
+    // Se pide siempre: el catálogo depende de la vista activa y cambia al cambiar de subpestaña.
+    // Al arrancar puede no haber sesión todavía, así que aquí se reintenta en vez de quedarse mudo.
+    sug.innerHTML = '<div class="vacio">cargando…</div>';
+    try { lista = await fuente(); }
+    catch (e) { sug.innerHTML = `<div class="vacio">${esc(e.message === 'SIN_SESION' ? 'inicia sesión para filtrar' : e.message)}</div>`; return; }
+    pintarLista();
+  };
+  const cerrar = () => sug.classList.remove('abierta');
+
+  caja.onclick = () => { inp.focus(); if (!sug.classList.contains('abierta')) abrir(); else cerrar(); };
+  inp.onfocus = abrir;
+  inp.oninput = () => { if (lista) { sug.classList.add('abierta'); pintarLista(); } };
+  inp.onkeydown = (e) => {
+    if (e.key === 'Backspace' && !inp.value && store[campo].length) { store[campo].pop(); pintar(); if (lista) pintarLista(); alCambiar(); }
+    if (e.key === 'Escape') cerrar();
+  };
+  document.addEventListener('click', (e) => { if (!m.contains(e.target)) cerrar(); });
+}
 
 async function buscar() {
   const st = $('expStatus'); st.textContent = 'buscando…'; st.className = 'status';
   try {
-    await cargarClientes(); await cargarUsuarios();
-    const est = $('fEstado').value, cli = $('fCliente').value.trim().toLowerCase();
-    const d1 = $('fDesde').value, d2 = $('fHasta').value;
-    let filas = [], cols = [];
-    if (sub === 'facturas') {
-      let q = '/factura?select=id,numero_auxadi,codigo_legible,fecha_emision,estado,base_imponible,total,pdf_storage_path,cliente_facturacion_id&order=fecha_emision.desc&limit=500';
-      if (est) q += `&estado=eq.${est}`;
-      if (d1) q += `&fecha_emision=gte.${d1}`; if (d2) q += `&fecha_emision=lte.${d2}`;
-      let rows = await fetchDetalle(q);
-      rows.forEach(r => { const c = clientes[r.cliente_facturacion_id]||{}; r.cliente = c.nombre||'—'; r._nif = c.nif||''; });
-      if (cli) rows = rows.filter(r => (r.cliente||'').toLowerCase().includes(cli) || (r._nif||'').toLowerCase().includes(cli));
-      filas = rows;
-      cols = [
-        { k:'numero_auxadi', t:'Número', f:(v,r)=> v || r.codigo_legible },
-        { k:'cliente', t:'Cliente' }, { k:'fecha_emision', t:'Emisión' },
-        { k:'estado', t:'Estado', pill:true },
-        { k:'base_imponible', t:'Base €', num:true }, { k:'total', t:'Total €', num:true },
-        // Reforma 2026-08 (D17/D19): lo que distingue una factura real de un apunte sin
-        // respaldo es el DOCUMENTO, no el estado. La columna de cobro y el botón de marcar
-        // cobrada se retiran: el proceso de cobro no se gestiona desde Kira.
-        { k:'pdf_storage_path', t:'Documento', f:(v)=> v ? 'sí' : '—' },
-      ];
-    } else if (sub === 'propuestas') {
-      let q = '/propuesta?select=id,codigo_legible,estado,resultado_cierre,fecha_envio,fecha_aceptacion,importe_propuesto,importe_aceptado,cliente_servicio_id&order=creado_en.desc&limit=500';
-      if (est) q += `&estado=eq.${est}`;
-      let rows = await fetchDetalle(q);
-      rows.forEach(r => { const c = clientes[r.cliente_servicio_id]||{}; r.cliente = c.nombre||'—'; r._nif = c.nif||''; r.importe = r.importe_aceptado ?? r.importe_propuesto; });
-      if (cli) rows = rows.filter(r => (r.cliente||'').toLowerCase().includes(cli) || (r._nif||'').toLowerCase().includes(cli));
-      filas = rows;
-      cols = [
-        { k:'codigo_legible', t:'Código' }, { k:'cliente', t:'Cliente' },
-        { k:'estado', t:'Estado', pill:true }, { k:'resultado_cierre', t:'Resultado' },
-        { k:'fecha_envio', t:'Envío' }, { k:'fecha_aceptacion', t:'Aceptación' },
-        { k:'importe', t:'Importe €', num:true },
-        // Reforma 2026-08 (FASE 4): aceptar y cerrar dejan de hacerse cambiando el estado a
-        // mano. «Aceptar» abre la pantalla de confirmación, que pide la división en proyectos
-        // y el calendario; «cerrar» elige por sí solo entre rechazada y oportunidad perdida
-        // según haya habido oferta o no (D3), así que aquí no hay dos botones distintos.
-        { k:'_acc', t:'', html:true, f:(v,r)=> {
-            if (r.estado === 'PROPUESTA_ENVIADA') return ''
-              + `<button class="verde mini" data-accion="aceptar" data-id="${r.id}" data-ref="${esc(r.codigo_legible||'')}">✓ aceptar</button> `
-              + `<button class="azul mini" data-accion="seguimiento" data-id="${r.id}" data-ref="${esc(r.codigo_legible||'')}">📞 seguir</button> `
-              + `<button class="gris mini" data-accion="cerrar-no" data-id="${r.id}" data-ref="${esc(r.codigo_legible||'')}">✗ cerrar</button>`;
-            if (r.estado === 'OPORTUNIDAD') return ''
-              + `<button class="gris mini" data-accion="cerrar-no" data-id="${r.id}" data-ref="${esc(r.codigo_legible||'')}">✗ perdida</button>`;
-            return '';
-          } }
-      ];
-    } else if (sub === 'hitos') {
-      // Reforma 2026-08 (D18/D21b): el estado del hito ya no es una columna, se deriva.
-      // Se lee de v_cm_hito_calc, que expone las mismas columnas con el estado calculado.
-      let q = '/v_cm_hitos_app?select=id,codigo_legible,estado,fecha_prevista,importe_neto,descripcion,proyecto_linea_id&order=fecha_prevista.asc&limit=500';
-      if (est) q += `&estado=eq.${est}`;
-      if (d1) q += `&fecha_prevista=gte.${d1}`; if (d2) q += `&fecha_prevista=lte.${d2}`;
-      let rows = await fetchDetalle(q);
-      // Cliente/Proyecto vía embedding REST (v_cm_hitos_det no es legible por authenticated, F1)
-      const plIds = [...new Set(rows.map(r => r.proyecto_linea_id).filter(Boolean))];
-      let plMap = {};
-      if (plIds.length) {
-        const pls = await fetchDetalle(`/proyecto_linea?select=id,proyecto_id&id=in.(${plIds.join(',')})`);
-        const prIds = [...new Set(pls.map(p => p.proyecto_id))];
-        const prs = prIds.length ? await fetchDetalle(`/proyecto?select=id,codigo_legible,cliente_facturacion_id&id=in.(${prIds.join(',')})`) : [];
-        const prMap = {}; prs.forEach(p => prMap[p.id] = p);
-        pls.forEach(p => plMap[p.id] = prMap[p.proyecto_id]);
-      }
-      rows.forEach(r => {
-        const pr = plMap[r.proyecto_linea_id];
-        r.proyecto = pr ? pr.codigo_legible : '—';
-        r.cliente = pr ? (clientes[pr.cliente_facturacion_id]||{}).nombre || '—' : '—';
-      });
-      filas = rows;
-      cols = [
-        { k:'codigo_legible', t:'Hito' }, { k:'cliente', t:'Cliente' }, { k:'proyecto', t:'Proyecto' },
-        { k:'descripcion', t:'Descripción' },
-        { k:'estado', t:'Estado', pill:true }, { k:'fecha_prevista', t:'Prevista' },
-        { k:'importe_neto', t:'Importe €', num:true },
-        { k:'_acc', t:'', html:true, f:(v,r)=> ['previsto','facturable'].includes(r.estado)
-            ? `<button class="azul mini" data-accion="mover-hito" data-id="${r.id}" data-ref="${esc(r.codigo_legible||'')}" data-fecha="${esc(r.fecha_prevista||'')}">📅 mover</button>` : '' }
-      ];
+    await cargarEjercicios();
+    const v = VISTAS[sub];
+    let q = `${v.ruta}?select=*&order=${v.orden}&limit=500`;
+
+    const est = $('fEstado').value;
+    if (est) q += `&estado=eq.${encodeURIComponent(est)}`;
+
+    // Los tres desplegables se combinan entre sí; dentro de cada uno, las opciones suman.
+    ['cliente','grupo','referidor'].forEach(c => {
+      if (selFiltro[c].length) q += `&${c}_id=in.(${selFiltro[c].map(o => o.id).join(',')})`;
+    });
+
+    // Ejercicio: no es «a cuál pertenece» sino «qué estuvo vivo durante él». Las vistas exponen
+    // vive_desde/vive_hasta con extremos abiertos (m286), así que basta el solapamiento.
+    if (fySel) {
+      const fy = ejercicios.find(e => e.codigo === fySel);
+      if (fy) q += `&vive_desde=lte.${fy.fecha_fin}&vive_hasta=gte.${fy.fecha_inicio}`;
     }
-    ultimaFilas = filas; ultimaCols = cols;
-    $('expTabla').innerHTML = tablaHtml(filas, cols);
-    st.textContent = `${filas.length} resultado(s)` + (filas.length === 500 ? ' — ⚠ limitados a 500, afina el filtro' : '')
-      + (clientesTruncado ? ' — ⚠ lista de clientes limitada a 1000, el filtro por cliente puede estar incompleto' : '');
+
+    const d1 = $('fDesde').value, d2 = $('fHasta').value;
+    if (d1) q += `&${v.fecha}=gte.${d1}`;
+    if (d2) q += `&${v.fecha}=lte.${d2}`;
+
+    const filas = await fetchDetalle(q);
+    ultimaFilas = filas; ultimaCols = v.cols;
+    $('expTabla').innerHTML = tablaHtml(filas, v.cols);
+    st.textContent = `${filas.length} resultado(s)`
+      + (filas.length === 500 ? ' — ⚠ limitados a 500, afina el filtro' : '')
+      + (fySel ? ` · ${fySel}` : '');
   } catch (e) {
     if (e.message === 'SIN_SESION') { mostrarLogin(); st.textContent = 'inicia sesión para ver el detalle'; }
     else { st.textContent = e.message; st.className = 'status error'; }
@@ -928,10 +1083,11 @@ function tablaHtml(filas, cols) {
   const trs = filas.map(r => '<tr>' + cols.map(c => {
     let v = c.f ? c.f(r[c.k], r) : r[c.k];
     if (v == null) v = '';
-    if (c.pill && v) return `<td><span class="pill ${esc(r[c.k])}">${esc(v)}</span></td>`;
-    if (c.html) return `<td>${v}</td>`;
+    const cls = c.cls ? ` class="${c.cls}"` : '';
+    if (c.pill && v) return `<td${cls}><span class="pill ${esc(r[c.k])}">${esc(v)}</span></td>`;
+    if (c.html) return `<td${cls}>${v}</td>`;
     if (c.num) return `<td class="num">${v === '' ? '' : fmt2(v)}</td>`;
-    return `<td>${esc(v)}</td>`;
+    return `<td${cls}>${esc(v)}</td>`;
   }).join('') + '</tr>').join('');
   const tf = '<tr>' + cols.map(c => c.num ? `<td class="num">${fmt2(sum[c.k])}</td>` : '<td></td>').join('') + '</tr>';
   return `<table class="datos"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody><tfoot>${tf}</tfoot></table>`;
@@ -939,6 +1095,8 @@ function tablaHtml(filas, cols) {
 // Delegación de eventos para los botones de acción de las tablas (E2): nunca se interpola
 // el dato del usuario en un atributo onclick, solo en data-* ya escapados por esc().
 $('expTabla').addEventListener('click', (e) => {
+  const f = e.target.closest('button[data-prop]');
+  if (f) { irAPropuesta(f.dataset.prop); return; }
   const b = e.target.closest('button[data-accion]');
   if (!b) return;
   const { accion, id, ref, fecha } = b.dataset;
@@ -1293,7 +1451,8 @@ $('acepConfirmar').addEventListener('click', async () => {
 // Exportar CSV (lo último buscado)
 function exportarCsv() {
   if (!ultimaFilas.length) { alert('Busca algo primero.'); return; }
-  const cols = ultimaCols.filter(c => c.k !== '_acc');
+  // Fuera las columnas que no son datos: los botones de acción y el de ficha (03-08).
+  const cols = ultimaCols.filter(c => c.k !== '_acc' && c.t !== 'Ficha');
   const cab = cols.map(c => c.t).join(';');
   const lineas = ultimaFilas.map(r => cols.map(c => {
     let v = c.f ? c.f(r[c.k], r) : r[c.k];
@@ -1336,6 +1495,10 @@ function colsAuto(filas) {
 // "no ha cobrado nada", justo lo contrario de "no lo sé". En su sitio van dos datos que sí
 // son hechos y que la RPC ya devolvía sin que nadie los mostrase.
 // ============================================================
+// Estado propio del desplegable de esta pantalla: no comparte selección con los filtros de
+// Consultar, aunque use el mismo componente y el mismo catálogo.
+const selC360 = { cliente: [] };
+
 function renderClienteMini(r) {
   return `<div class="cliente-mini">
     <div class="nombre">${esc(r.cliente)}</div>
@@ -1351,6 +1514,11 @@ async function buscarCliente360(nombre) {
     const filas = await rpc('rpt_cliente_resumen', { p_cliente: nombre });
     if (!filas.length) { cont.innerHTML = `<span class="status">Sin coincidencias para "${esc(nombre)}".</span>`; return; }
     if (filas.length > 1) {
+      // La RPC busca por coincidencia parcial, así que un nombre puede ser subcadena de otro
+      // («Monlux» dentro de «Monlux, S.A.»). Viniendo del desplegable el nombre es exacto, así
+      // que si hay una coincidencia literal se usa esa y no se pregunta.
+      const exacta = filas.find(r => (r.cliente || '').toLowerCase() === nombre.toLowerCase());
+      if (exacta) { await pintarCliente360(exacta); return; }
       cont.innerHTML = '<div class="sub" style="margin-bottom:8px">Varias coincidencias, elige una:</div>' +
         filas.map(r => `<button class="mini gris" data-c360="${esc(r.cliente)}" style="margin:0 6px 6px 0">${esc(r.cliente)}</button>`).join('');
       return;
@@ -2190,8 +2358,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('refresh').onclick = cargarPanel;
   $('btnBuscar').onclick = buscar;
-  $('fCliente').addEventListener('keydown', e => { if (e.key === 'Enter') buscar(); });
   $('btnCsv').onclick = exportarCsv;
+  // Consultar (03-08): tres filtros de selección múltiple en lugar del campo de texto de cliente,
+  // y los botones de ejercicio, que se pintan al cargar los catálogos.
+  document.querySelectorAll('#pantalla-explorar .multi').forEach(m => montarMulti(m));
+  cargarEjercicios().catch(() => {});
   // Work-in-Progress: sin filtros ni botón de buscar (03-08-2026), se carga al entrar.
 
   // Pantalla de propuesta: volver al WIP y los tres lápices de edición
@@ -2223,8 +2394,15 @@ document.addEventListener('DOMContentLoaded', () => {
   $('btnInfGuardar').onclick = guardarInformeActual;
   $('btnInfPdf').onclick = exportarInformePdf;
   $('btnInfExcel').onclick = exportarInformeExcel;
-  $('btnC360Buscar').onclick = () => buscarCliente360($('c360Buscar').value.trim());
-  $('c360Buscar').addEventListener('keydown', e => { if (e.key === 'Enter') buscarCliente360($('c360Buscar').value.trim()); });
+  // Cliente 360º (03-08): desplegable de selección única en lugar de la caja de texto.
+  montarMulti($('c360Cliente'), {
+    store: selC360, uni: true, vacio: 'elige un cliente…',
+    fuente: cargarClientesFiltro,      // todos los clientes con actividad, no los de una vista
+    alCambiar: () => {
+      const c = selC360.cliente[0];
+      if (c) buscarCliente360(c.nombre); else $('c360Resultado').innerHTML = '';
+    },
+  });
   $('btnEnviar').onclick = () => preguntar();
   $('chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') preguntar(); });
   $('btnMic').onclick = () => { if (rec) { try { rec.start(); } catch {} } };

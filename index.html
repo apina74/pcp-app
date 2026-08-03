@@ -168,14 +168,22 @@
 
 <!-- ===== Pantalla: Explorar ===== -->
 <section id="pantalla-explorar" class="pantalla">
-  <div class="subtabs">
-    <button class="subtab activa" data-sub="facturas">Facturas</button>
-    <button class="subtab" data-sub="propuestas">Propuestas</button>
-    <button class="subtab" data-sub="hitos">Hitos</button>
+  <!-- Orden nuevo (03-08): el recorrido natural del encargo. Los botones de ejercicio van a la
+       altura de las subpestañas; ninguno pulsado = sin filtro. -->
+  <div class="barra-consultar">
+    <div class="subtabs">
+      <button class="subtab activa" data-sub="propuestas">Propuestas</button>
+      <button class="subtab" data-sub="proyectos">Proyectos</button>
+      <button class="subtab" data-sub="hitos">Hitos</button>
+      <button class="subtab" data-sub="facturas">Facturas</button>
+    </div>
+    <div class="ejercicios"><span class="et">Ejercicio</span><span id="fyBotones"></span></div>
   </div>
   <div class="filtros">
+    <div class="multi" data-campo="cliente"><div class="caja"><input placeholder="cliente…"></div><div class="sug"></div></div>
+    <div class="multi" data-campo="grupo"><div class="caja"><input placeholder="grupo…"></div><div class="sug"></div></div>
+    <div class="multi" data-campo="referidor"><div class="caja"><input placeholder="referidor…"></div><div class="sug"></div></div>
     <select id="fEstado"><option value="">— estado —</option></select>
-    <input id="fCliente" type="text" placeholder="cliente (nombre o NIF)" style="width:200px">
     <input id="fDesde" type="date"> <span class="sub">a</span> <input id="fHasta" type="date">
     <button id="btnBuscar" class="azul">Buscar</button>
     <span class="spacer" style="flex:1"></span>
@@ -248,9 +256,10 @@
 
 <!-- ===== Pantalla: Cliente 360º (FASE F) ===== -->
 <section id="pantalla-cliente360" class="pantalla">
+  <!-- 03-08: la caja de texto se sustituye por un desplegable de selección única. Con el
+       nombre exacto desaparece la desambiguación por coincidencias parciales. -->
   <div class="c360-buscador">
-    <input id="c360Buscar" type="text" placeholder="Nombre o NIF del cliente…">
-    <button id="btnC360Buscar" class="azul">Buscar</button>
+    <div class="multi uni" id="c360Cliente" data-campo="cliente"><div class="caja"><input placeholder="elige un cliente…"></div><div class="sug"></div></div>
   </div>
   <div id="c360Resultado"></div>
 </section>

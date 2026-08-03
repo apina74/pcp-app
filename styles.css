@@ -537,6 +537,72 @@ table.datos tfoot td { font-weight: 700; background: #0a0c1c; border-top: 1px so
 .pill.PENDIENTE_IDR { border-color: #333c66; color: #8b96c4; } .pill.PAUSADO { border-color: #333c66; color: #8b96c4; } .pill.LOST { border-color: rgba(255,56,96,.55); color: var(--rojo); }
 .pill.PENDIENTE_INFO { border-color: rgba(255,214,10,.5); color: var(--ambar); } .pill.PENDIENTE_REVISION_CLIENTE { border-color: rgba(255,214,10,.5); color: var(--ambar); }
 
+/* ---------- Consultar: ejercicio, filtros de selección múltiple y botón de ficha (03-08) ---------- */
+.barra-consultar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.barra-consultar .subtabs { margin-bottom: 0; }
+.ejercicios { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+.ejercicios .et { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--gris-txt); }
+.fy {
+  background: transparent; border: 1px solid var(--borde); color: var(--gris-txt); border-radius: 20px;
+  padding: 5px 15px; font-size: 12px; font-weight: 700; letter-spacing: .05em; box-shadow: none;
+}
+.fy:hover { color: var(--navy-800); border-color: rgba(0,240,255,.45); box-shadow: none; }
+.fy.on {
+  background: rgba(0,240,255,.14); border-color: var(--navy-800); color: var(--navy-800);
+  filter: drop-shadow(0 0 7px rgba(0,240,255,.45));
+}
+
+.multi { position: relative; min-width: 200px; }
+.multi .caja {
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center; background: #0a0c1c;
+  border: 1px solid var(--borde); border-radius: 3px; padding: 3px 6px; min-height: 32px; cursor: text;
+}
+.multi .caja:focus-within { border-color: rgba(0,240,255,.45); }
+.multi input { background: none; border: 0; color: var(--tinta); font: inherit; font-size: 12.5px;
+  outline: none; flex: 1; min-width: 68px; padding: 3px 2px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px; background: rgba(0,240,255,.12);
+  border: 1px solid rgba(0,240,255,.35); color: var(--navy-800); border-radius: 20px;
+  padding: 1px 6px 1px 9px; font-size: 11px; font-weight: 600; white-space: nowrap; max-width: 180px;
+}
+.chip span { overflow: hidden; text-overflow: ellipsis; }
+.chip b { cursor: pointer; color: var(--gris-txt); font-weight: 400; font-size: 13px; line-height: 1; }
+.chip b:hover { color: var(--naranja); }
+.chip.gr { background: rgba(176,38,255,.12); border-color: rgba(176,38,255,.35); color: #d9a5ff; }
+.chip.rf { background: rgba(255,214,10,.10); border-color: rgba(255,214,10,.35); color: var(--ambar); }
+.multi .sug {
+  position: absolute; z-index: 30; top: 100%; left: 0; right: 0; background: #0b0e20;
+  border: 1px solid var(--borde); border-radius: 4px; margin-top: 3px; max-height: 200px;
+  overflow: auto; display: none; box-shadow: 0 8px 22px rgba(0,0,0,.6);
+}
+.multi .sug.abierta { display: block; }
+.multi .sug .opcion { display: flex; gap: 7px; align-items: baseline; padding: 6px 10px; font-size: 12.5px; cursor: pointer; color: var(--tinta-2); }
+.multi .sug .opcion:hover { background: rgba(0,240,255,.08); color: var(--tinta); }
+.multi .sug .opcion.marcada { color: var(--navy-800); }
+.multi .sug .tick { width: 11px; flex: 0 0 11px; font-size: 11px; }
+.multi .sug .vacio { padding: 6px 10px; font-size: 12.5px; color: var(--gris-txt); font-style: italic; cursor: default; }
+/* Indicador de que es un desplegable, no un campo de texto suelto. */
+.multi .caja::after { content: '▾'; color: var(--gris-txt); font-size: 11px; margin-left: 2px; }
+.multi .caja:focus-within::after { color: var(--navy-800); }
+
+/* La descripción iba en una sola línea y estiraba la tabla de proyectos a 1610px sobre 1036
+   visibles, dejando fuera de la vista las últimas columnas (03-08). */
+table.datos td.desc { white-space: normal; min-width: 220px; max-width: 340px; }
+table.datos td.recorta { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+
+/* Abre la ficha de propuesta desde cualquier fila. */
+.ficha-btn { background: transparent; border: 1px solid var(--borde); color: var(--gris-txt);
+  font-size: 11px; border-radius: 4px; padding: 2px 9px; box-shadow: none; white-space: nowrap; }
+.ficha-btn:hover { border-color: var(--navy-800); color: var(--navy-800); background: rgba(0,240,255,.08); box-shadow: none; }
+.celda-ref { color: var(--ambar); }
+.celda-grupo { color: #d9a5ff; }
+.celda-vacia { color: #42496b; }
+
+/* Salidas de propuesta separadas (03-08): «cerrada» ya no lo dice todo. */
+.pill.ACEPTADA { border-color: rgba(10,255,157,.5); color: var(--verde); }
+.pill.RECHAZADA { border-color: rgba(255,56,96,.55); color: var(--rojo); }
+.pill.PERDIDA { border-color: #333c66; color: #8b96c4; }
+
 /* ---------- Subir documentos ---------- */
 .subir-caja {
   background: var(--tarjeta); border: 1px dashed rgba(0,240,255,.35); border-radius: var(--radio);
