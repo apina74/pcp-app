@@ -18,7 +18,14 @@ const fmt0 = (n) => (Number(n)||0).toLocaleString('es-ES', { maximumFractionDigi
 const fmt2 = (n) => (Number(n)||0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const MESES_ES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 const mesLabel = (m) => { const [a, mm] = String(m).split('-'); return mm ? `${MESES_ES[+mm-1]} '${a.slice(2)}` : m; };
-$('hoy').textContent = new Date().toISOString().slice(0,10);
+
+// ⚠ NUNCA usar toISOString() para convertir una fecha del calendario a texto: convierte a UTC
+// y desde España (UTC+1/+2) devuelve EL DÍA ANTERIOR. Se destapó el 04-08-2026 auditando el
+// briefing: pedía la previsión "del próximo mes" y consultaba del 31-ago al 29-sep, con lo que
+// presentaba como septiembre los cinco hitos que vencían el 31 de agosto. La fecha era
+// correcta como suma y falsa como etiqueta, que es la peor combinación.
+const fechaIso = (dt) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+$('hoy').textContent = fechaIso(new Date());
 
 // ===== Ejercicio fiscal activo (v_cm_fy) =====
 // Los rótulos de FY se leen de la BD: al hacer el rollover (marcar es_actual en
@@ -52,6 +59,10 @@ cargarFy();
 // ============================================================
 let ses = null;            // { access_token, refresh_token, expires_at } en memoria
 let bioKey = null;         // clave AES derivada del desbloqueo del dispositivo (en memoria)
+// Bloque E: memoria conversacional de Kira. Solo los últimos turnos y solo texto — es
+// contexto para desambiguar ("¿y de CAF?"), no un archivo del chat. Se declara aquí, con el
+// resto del estado de sesión, porque cerrarSesion() la vacía.
+let historialChat = [];
 const LS_SES = 'cm_sesion_v8', LS_BIO = 'cm_bio_v8', LS_BIO_DATA = 'cm_bio_data_v8', LS_VOZ = 'cm_voz_v8';
 
 function emailDe(tok) {
@@ -112,6 +123,7 @@ async function getToken() {
 function cerrarSesion() {
   ses = null; bioKey = null;
   localStorage.removeItem(LS_SES);
+  historialChat = [];      // la memoria del chat no sobrevive al cierre de sesión
   refrescarSesionUI();
   mostrarLogin();
 }
@@ -1163,7 +1175,9 @@ const HITOS_5050 = () => ([
   { concepto:'50% aceptación',     pct:50, fecha:hoyIso(), disparador:'PROYECTO_CREADO' },
   { concepto:'50% borrador final', pct:50, fecha:'',        disparador:'BORRADOR_FINAL_ENVIADO' },
 ]);
-function hoyIso(){ return new Date().toISOString().slice(0,10); }
+// Fecha local, no UTC: esta fecha se GUARDA (hitos de la aceptación), así que entre las 00:00
+// y las 02:00 de España toISOString() habría registrado el día anterior.
+function hoyIso(){ return fechaIso(new Date()); }
 
 window.abrirAceptacion = async (id, ref) => {
   try {
@@ -2023,7 +2037,16 @@ function vozFemenina() {
   if (vozCache) return vozCache;
   const esVoces = speechSynthesis.getVoices().filter(v => v.lang && v.lang.toLowerCase().startsWith('es'));
   const fem = /helena|laura|elvira|sabina|paloma|luc[ií]a|m[oó]nica|montse|dalia|camila|isidora|catalina|female|mujer/i;
-  vozCache = esVoces.find(v => fem.test(v.name))
+  // Preferencia por las voces NEURALES de España (04-08-2026). Este equipo tiene 48 voces en
+  // español y la elección caía en "Microsoft Helena", una SAPI clásica, solo porque aparece
+  // antes en la lista; estando disponible "Elvira Online (Natural)" es-ES, que suena
+  // muchísimo mejor. Es la misma voz que ya se eligió para Hermes (es-ES-ElviraNeural).
+  const esEs = esVoces.filter(v => /^es-ES/i.test(v.lang));
+  const natural = (v) => /natural|neural|online/i.test(v.name);
+  vozCache = esEs.find(v => natural(v) && fem.test(v.name))
+      || esEs.find(v => fem.test(v.name))
+      || esVoces.find(v => natural(v) && fem.test(v.name))
+      || esVoces.find(v => fem.test(v.name))
       || esVoces.find(v => /google/i.test(v.name))
       || esVoces[0] || null;
   return vozCache;
@@ -2049,9 +2072,35 @@ async function resolverIdentificador(rpcNombre, identificador) {
   await cargarClientes();
   const q = (identificador || '').trim();
   if (!q) return [];
+  // Los filtros de PostgREST usan la coma como separador: sin escapar, un cliente como
+  // "Construcciones y Auxiliar de Ferrocarriles, S.A." rompería la consulta entera.
+  const qUrl = encodeURIComponent(q.replace(/[,()*]/g, ' ').trim());
+
   if (rpcNombre === 'cm_reprogramar_hito') {
-    const rows = await fetchDetalle(`/v_cm_hitos_app?select=id,codigo_legible,estado,importe_neto,fecha_prevista&codigo_legible=ilike.*${q}*&limit=20`);
-    return rows.map(r => ({ id: r.id, ref: r.codigo_legible, estado: r.estado, importe: r.importe_neto, fecha_prevista: r.fecha_prevista }));
+    // m290: se busca por `busqueda` (código del hito + código de proyecto + TODOS los clientes
+    // relacionados), no por codigo_legible. Antes el prompt prometía "nombre de cliente" y el
+    // resolutor solo miraba el código del hito: la acción fallaba siempre (lección #212).
+    const rows = await fetchDetalle(`/v_cm_hitos_app?select=id,codigo_legible,estado,importe_neto,fecha_prevista,cliente,proyecto_codigo&busqueda=ilike.*${qUrl}*&limit=20`);
+    const cands = rows.map(r => ({
+      id: r.id, ref: r.codigo_legible, estado: r.estado, importe: r.importe_neto,
+      fecha_prevista: r.fecha_prevista, cliente: r.cliente,
+    }));
+    // Decir "el hito de ITV" da varios candidatos. Reprogramar solo tiene sentido sobre los
+    // que aún no se han facturado: si al quedarse con esos queda uno solo, no hay ambigüedad
+    // real. Se filtra DESPUÉS de buscar, nunca antes, para no responder "no encuentro nada"
+    // a quien da el código exacto de un hito ya facturado.
+    const previstos = cands.filter(c => c.estado === 'previsto');
+    return (cands.length > 1 && previstos.length === 1) ? previstos : cands;
+  }
+
+  if (rpcNombre === 'cm_registrar_hecho_proyecto') {
+    // Bloque C: anotar una nota en la crónica, pausar un proyecto o darlo por perdido. Las
+    // tres se dicen hablando, no hay botón en la app (decisión del 03-08).
+    const rows = await fetchDetalle(`/v_cm_proyectos_app?select=id,codigo_legible,estado,cliente,descripcion&busqueda=ilike.*${qUrl}*&limit=20`);
+    return rows.map(r => ({
+      id: r.id, ref: r.codigo_legible, estado: r.estado, cliente: r.cliente,
+      descripcion: r.descripcion,
+    }));
   }
   // cm_registrar_seguimiento_propuesta
   const idsCliente = Object.entries(clientes)
@@ -2110,11 +2159,19 @@ async function pintarTarjetaAccion(d, msg) {
     linea.textContent = 'ejecutando…';
     try {
       const params = d.rpc === 'cm_reprogramar_hito' ? { p_hito_id: resuelto.id, p_fecha: d.fecha }
-        : { p_propuesta_id: resuelto.id, p_nota: d.nota || d.resumen };
+        : d.rpc === 'cm_registrar_hecho_proyecto'
+          ? { p_proyecto_id: resuelto.id, p_tipo_evento: d.hecho, p_fecha: d.fecha || null, p_nota: d.nota || null }
+          : { p_propuesta_id: resuelto.id, p_nota: d.nota || d.resumen };
       const r = await rpc(d.rpc, params);
       if (r.ok) {
+        // El estado del proyecto lo mueve la BASE a partir del hecho (m276), no la pantalla:
+        // por eso se muestra lo que la RPC dice que pasó, no lo que se esperaba que pasara.
+        // Con NOTA el estado no cambia, y entonces no se anuncia ningún cambio.
         linea.textContent = d.rpc === 'cm_reprogramar_hito' ? `✓ ${r.hito} reprogramado: ${r.antes} → ${r.ahora}`
-          : `✓ Seguimiento registrado en ${r.propuesta} (${r.fecha})`;
+          : d.rpc === 'cm_registrar_hecho_proyecto'
+            ? `✓ ${r.proyecto}: ${r.hecho} (${r.fecha})` +
+              (r.estado_antes !== r.estado_despues ? ` — estado ${r.estado_antes} → ${r.estado_despues}` : '')
+            : `✓ Seguimiento registrado en ${r.propuesta} (${r.fecha})`;
         cargarBadgeAlertas();
         if (document.getElementById('pantalla-explorar').classList.contains('activa')) buscar().catch(() => {});
       } else {
@@ -2134,7 +2191,7 @@ async function cargarBriefing(msg) {
     const hoy = new Date();
     const inicio = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1);
     const fin = new Date(hoy.getFullYear(), hoy.getMonth() + 2, 0);
-    const iso = (dt) => dt.toISOString().slice(0, 10);
+    const iso = fechaIso;   // local, NUNCA toISOString() — ver el comentario de fechaIso
     let prevision = { n: 0, suma: 0 };
     try {
       const filas = await rpc('rpt_facturas_previstas', { p_desde: iso(inicio), p_hasta: iso(fin) });
@@ -2173,6 +2230,12 @@ async function cargarBriefing(msg) {
   teoEstado('reposo');
 }
 
+function recordar(rol, texto) {
+  if (!texto) return;
+  historialChat.push({ rol, texto: String(texto).slice(0, 300) });
+  if (historialChat.length > 6) historialChat = historialChat.slice(-6);
+}
+
 async function preguntar(texto) {
   texto = (texto || $('chatInput').value).trim();
   if (!texto) return;
@@ -2192,10 +2255,13 @@ async function preguntar(texto) {
     const r = await fetch(FUNC_QA, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: ANON, Authorization: `Bearer ${tok}` },
-      body: JSON.stringify({ pregunta: texto })
+      body: JSON.stringify({ pregunta: texto, historial: historialChat })
     });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`);
+    // Se recuerda DESPUÉS de enviar: el historial que viaja es el de los turnos anteriores.
+    recordar('usuario', texto);
+    recordar('kira', d.respuesta || d.resumen || d.titulo || '');
 
     if (d.tipo === 'informe') {
       msg.innerHTML = `<strong>${d.titulo || 'Informe'}</strong>`;
