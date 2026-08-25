@@ -1907,10 +1907,18 @@ function tarjetaProp(f) {
     </div>`;
   }
 
+  // Cuatro estados, no dos: hasta el 25-08 cualquier cosa distinta de «cuadra» caía en
+  // «⚠ sin total explícito», incluso con el total pintado en la línea de arriba (pasaba
+  // siempre que el importe venía de la cascada de IA y no de una tabla del regex).
   const cuadre = f.cuadra === true
     ? '<span class="ok">✓ el total cuadra con la suma de líneas</span>'
-    : (f.descuento ? '<span class="warn">tiene descuento: el total no cuadra con las líneas a propósito</span>'
-                   : '<span class="warn">⚠ sin total explícito en el documento</span>');
+    : f.descuento
+      ? '<span class="warn">tiene descuento: el total no cuadra con las líneas a propósito</span>'
+    : f.cuadra === false
+      ? '<span class="warn">⚠ las líneas no suman el total del documento: revísalo</span>'
+    : f.total_documento == null
+      ? '<span class="warn">⚠ sin total explícito en el documento</span>'
+      : '<span class="sub">sin líneas con las que cuadrar</span>';
 
   return `<div class="prop-tarjeta" data-ing="${f.id}">
     <div class="prop-cab">
@@ -1971,7 +1979,11 @@ function datosBloque(bloque) {
     importe: num(tr.querySelector('.lp-imp').value),
     tipo_servicio: tr.querySelector('.lp-serv').value,
     clasificacion: tr.querySelector('.lp-clas').value,
-  })).filter(l => l.importe != null && l.importe > 0);
+  // Se admiten importes NEGATIVOS: la extracción puede traer la fila de descuento como
+  // línea propia (visto con ITV FY2025: 7 brutos + «Discount −10.050» = 23.450). Con el
+  // filtro anterior (> 0) esa línea se descartaba AL CONFIRMAR pero seguía pintada en
+  // pantalla: el cuadre visual decía ✓ y el alta se guardaba descuadrada en silencio.
+  })).filter(l => l.importe != null && l.importe !== 0);
   return {
     p_ingesta_id: bloque.dataset.ing,
     p_bloque_idx: Number(bloque.dataset.bloque),
