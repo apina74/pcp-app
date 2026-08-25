@@ -844,3 +844,25 @@ table.datos td.recorta { max-width: 240px; overflow: hidden; text-overflow: elli
 @media (max-width: 720px) {
   .modal-caja { inset: 0; transform: none; width: 100vw; max-height: 100vh; border-radius: 0; }
 }
+
+
+/* ===== Revisión de ingesta: listado + pop-up (pcp-v38) ===== */
+.doc-fila {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,.08);
+}
+.doc-fila .doc-nombre { font-size: 12.5px; }
+.doc-fila .doc-resumen { color: var(--gris-txt); font-size: 11px; }
+.doc-fila .doc-aviso { color: var(--ambar); font-size: 11px; }
+.rev-velo {
+  position: fixed; inset: 0; z-index: 300;
+  background: rgba(0,0,0,.65); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center; padding: 3vh 12px;
+}
+.rev-velo[hidden] { display: none; }
+.rev-caja {
+  background: var(--panel, #101223); border: 1px solid rgba(255,255,255,.14);
+  border-radius: 10px; width: min(960px, 100%); max-height: 90vh;
+  overflow: auto; padding: 14px 16px; box-shadow: 0 12px 48px rgba(0,0,0,.5);
+}
+.rev-cab { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
