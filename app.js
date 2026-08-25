@@ -289,7 +289,7 @@ document.querySelectorAll('.nav-item[data-pantalla]').forEach(t => t.addEventLis
   if (!ses) mostrarLogin();
   if (t.dataset.pantalla === 'proyectos' && ses) cargarProyectos();
   if (t.dataset.pantalla === 'informes' && ses) cargarInformesGuardados();
-  if (t.dataset.pantalla === 'subir' && ses) { cargarIngesta(); cargarIngestaProp(); cargarIngestaCorr(); }
+  if (t.dataset.pantalla === 'subir' && ses) cargarDocs();
 }));
 
 // Menú lateral en móvil (F3): en escritorio el sidebar es fijo y esto no llega a actuar.
@@ -1754,41 +1754,32 @@ const CONFIANZA_TXT = {
   nif_raiz: 'raíz del NIF (sufijo distinto)',
   denominacion: 'solo por nombre',
 };
-async function cargarIngesta() {
-  const st = $('ingStatus');
-  try {
-    const filas = await fetchDetalle('/v_cm_ingesta_pendiente?select=*');
-    const n = filas.length;
-    const b = $('ingBadge');
-    if (n) { b.textContent = n; b.style.display = 'inline-block'; } else b.style.display = 'none';
-    $('ingLista').innerHTML = n ? filas.map(f => {
-      const imp = f.base_imponible ?? f.total;
-      const cab = `${esc(f.numero_auxadi || '(sin número)')} · ${esc(f.fecha_emision || '—')} · ${imp != null ? fmt2(imp) + ' €' : '—'}`;
-      if (f.casado) {
-        return `<div class="informe-guardado">
-          <span class="nombre">${cab}<br>
-            <span class="fecha">casa con ${esc(f.hito)} — ${esc(f.cliente)} · confianza: ${esc(CONFIANZA_TXT[f.confianza] || f.confianza)}</span>
-          </span>
-          <span style="display:flex;gap:6px">
-            <button class="mini verde" data-ing-ok="${f.id}">Confirmar</button>
-            <button class="mini gris" data-ing-no="${f.id}">Descartar</button>
-          </span></div>`;
-      }
-      return `<div class="informe-guardado" style="border-color:rgba(255,214,10,.4)">
-        <span class="nombre">${cab}<br>
-          <span class="fecha" style="color:var(--ambar)">⚠ ${esc(f.motivo_duda || 'sin casar')}</span>
-        </span>
-        <span style="display:flex;gap:6px">
-          <button class="mini gris" data-ing-no="${f.id}">Descartar</button>
-        </span></div>`;
-    }).join('') : '<span class="status">nada pendiente de revisar</span>';
-    st.textContent = n ? `${n} pendiente(s)` : '';
-    st.className = 'status';
-  } catch (e) {
-    if (e.message !== 'SIN_SESION') { st.textContent = e.message; st.className = 'status error'; }
+function tarjetaFact(f) {
+  const imp = f.base_imponible ?? f.total;
+  const cab = `${esc(f.numero_auxadi || '(sin número)')} · ${esc(f.fecha_emision || '—')} · ${imp != null ? fmt2(imp) + ' €' : '—'}`;
+  if (f.casado) {
+    return `<div class="informe-guardado">
+      <span class="nombre">${cab}<br>
+        <span class="fecha">casa con ${esc(f.hito)} — ${esc(f.cliente)} · confianza: ${esc(CONFIANZA_TXT[f.confianza] || f.confianza)}</span>
+      </span>
+      <span style="display:flex;gap:6px">
+        <button class="mini verde" data-ing-ok="${f.id}">Confirmar</button>
+        <button class="mini gris" data-ing-no="${f.id}">Descartar</button>
+      </span></div>`;
   }
+  return `<div class="informe-guardado" style="border-color:rgba(255,214,10,.4)">
+    <span class="nombre">${cab}<br>
+      <span class="fecha" style="color:var(--ambar)">⚠ ${esc(f.motivo_duda || 'sin casar')}</span>
+    </span>
+    <span style="display:flex;gap:6px">
+      <button class="mini gris" data-ing-no="${f.id}">Descartar</button>
+    </span></div>`;
 }
-$('ingLista').addEventListener('click', async (e) => {
+
+async function cargarIngesta() {
+  DOCS.factura = await fetchDetalle('/v_cm_ingesta_pendiente?select=*');
+}
+$('revCuerpo').addEventListener('click', async (e) => {  // facturas (dentro del pop-up)
   const ok = e.target.closest('button[data-ing-ok]');
   const no = e.target.closest('button[data-ing-no]');
   if (ok) {
@@ -1796,13 +1787,13 @@ $('ingLista').addEventListener('click', async (e) => {
     try {
       const r = await rpc('cm_confirmar_ingesta_factura', { p_ingesta_id: ok.dataset.ingOk });
       alert(r.ok ? `✓ ${r.factura} actualizada con la factura ${r.numero_auxadi}` : `No se pudo: ${r.error}`);
-      cargarIngesta();
+      cerrarRevision(); cargarDocs();
     } catch (err) { alert('Error: ' + err.message); }
   } else if (no) {
     const motivo = prompt('¿Por qué lo descartas? (opcional)') || null;
     try {
       await rpc('cm_descartar_ingesta', { p_ingesta_id: no.dataset.ingNo, p_motivo: motivo });
-      cargarIngesta();
+      cerrarRevision(); cargarDocs();
     } catch (err) { alert('Error: ' + err.message); }
   }
 });
@@ -1938,21 +1929,8 @@ function tarjetaProp(f) {
 const nombreArchivo = (p) => String(p || '').split('/').pop();
 
 async function cargarIngestaProp() {
-  const st = $('ingpStatus');
-  try {
-    await catalogos();
-    const filas = await fetchDetalle('/v_cm_ingesta_pendiente_propuesta?select=*');
-    const n = filas.length;
-    const b = $('ingpBadge');
-    if (n) { b.textContent = n; b.style.display = 'inline-block'; } else b.style.display = 'none';
-    $('ingpLista').innerHTML = n ? filas.map(tarjetaProp).join('')
-                                 : '<span class="status">nada pendiente de revisar</span>';
-    $('ingpLista').querySelectorAll('.prop-bloque').forEach(recalcularCuadre);
-    st.textContent = n ? `${n} documento(s)` : '';
-    st.className = 'status';
-  } catch (e) {
-    if (e.message !== 'SIN_SESION') { st.textContent = e.message; st.className = 'status error'; }
-  }
+  await catalogos();
+  DOCS.propuesta = await fetchDetalle('/v_cm_ingesta_pendiente_propuesta?select=*');
 }
 
 // El cuadre se calcula SIEMPRE en JS y se refresca al teclear: nunca se le pide a la IA
@@ -1994,11 +1972,11 @@ function datosBloque(bloque) {
   };
 }
 
-$('ingpLista').addEventListener('input', (e) => {
+$('revCuerpo').addEventListener('input', (e) => {  // cuadre en vivo, dentro del pop-up
   if (e.target.matches('.pb-importe, .lp-imp')) recalcularCuadre(e.target.closest('.prop-bloque'));
 });
 
-$('ingpLista').addEventListener('click', async (e) => {
+$('revCuerpo').addEventListener('click', async (e) => {  // propuestas (dentro del pop-up)
   const bloque = e.target.closest('.prop-bloque');
 
   if (e.target.matches('.pb-addlinea')) {
@@ -2036,7 +2014,7 @@ $('ingpLista').addEventListener('click', async (e) => {
         ? `✓ ${r.propuesta} creada (${r.lineas} línea(s), ${fmt2(r.importe)} €)` +
           (r.bloques_pendientes ? `\nQuedan ${r.bloques_pendientes} alta(s) por confirmar en este documento.` : '')
         : `No se pudo: ${r.error}`);
-      cargarIngestaProp();
+      cerrarRevision(); cargarDocs();
     } catch (err) { alert('Error: ' + err.message); }
     return;
   }
@@ -2046,7 +2024,7 @@ $('ingpLista').addEventListener('click', async (e) => {
     const motivo = prompt('¿Por qué lo descartas? (opcional)') || null;
     try {
       await rpc('cm_descartar_ingesta', { p_ingesta_id: id, p_motivo: motivo });
-      cargarIngestaProp();
+      cerrarRevision(); cargarDocs();
     } catch (err) { alert('Error: ' + err.message); }
   }
 });
@@ -2121,23 +2099,87 @@ function tarjetaCorr(f) {
 }
 
 async function cargarIngestaCorr() {
-  const st = $('ingcStatus');
+  await catalogos();
+  DOCS.correspondencia = await fetchDetalle('/v_cm_ingesta_pendiente_correspondencia?select=*');
+}
+
+// ============================================================
+// LISTADO ÚNICO + POP-UP DE REVISIÓN (25-08-2026, diseño de Antonio)
+// ============================================================
+// Una fila por documento leído, con «Revisar» a la IZQUIERDA; el formulario editable
+// de siempre (tarjetaFact / tarjetaProp / tarjetaCorr) se abre dentro del pop-up.
+const DOCS = { factura: [], propuesta: [], correspondencia: [] };
+const TIPO_DOC_TXT = { factura: 'factura', propuesta: 'propuesta', correspondencia: 'correspondencia' };
+
+function resumenDoc(tipo, f) {
+  if (tipo === 'factura') {
+    const imp = f.base_imponible ?? f.total;
+    return `${esc(f.numero_auxadi || '(sin número)')} · ${imp != null ? fmt2(imp) + ' €' : '—'}` +
+           (f.casado ? ` · casa con ${esc(f.hito)}` : ' · ⚠ sin casar');
+  }
+  if (tipo === 'propuesta') {
+    const cli = f.cambios_propuestos?.bloques?.[0]?.cliente;
+    return `${cli ? esc(cli) + ' · ' : ''}${f.total_documento != null ? fmt2(f.total_documento) + ' €' : 'sin total'}` +
+           ` · confianza ${esc(f.confianza || '?')}`;
+  }
+  const nCampos = Object.keys(f.campos || {}).length;
+  return `${f.entidad ? esc(f.entidad) + ' · ' : ''}${nCampos} campo(s) que completar`;
+}
+
+function nombreDoc(tipo, f) {
+  return tipo === 'factura' ? (f.numero_auxadi || f.archivo || '(factura)') : nombreArchivo(f.archivo);
+}
+
+function pintarDocs() {
+  const filas = [];
+  for (const tipo of ['factura', 'propuesta', 'correspondencia']) {
+    for (const f of DOCS[tipo]) {
+      const avisos = (f.avisos || []).filter(Boolean);
+      filas.push({ tipo, f, fecha: f.fecha_ingesta || '', avisos: avisos.length });
+    }
+  }
+  filas.sort((x, y) => String(y.fecha).localeCompare(String(x.fecha)));
+  const n = filas.length;
+  const b = $('docsBadge');
+  if (n) { b.textContent = n; b.style.display = 'inline-block'; } else b.style.display = 'none';
+  $('docsLista').innerHTML = n ? filas.map(({ tipo, f, avisos }) =>
+    `<div class="doc-fila">
+       <button class="mini azul" data-rev="${tipo}:${f.id}">Revisar</button>
+       <span class="pill ${tipo === 'factura' ? 'ok' : tipo === 'propuesta' ? 'warn' : 'morado'}">${TIPO_DOC_TXT[tipo]}</span>
+       <span class="doc-nombre">${esc(nombreDoc(tipo, f))}<br>
+         <span class="doc-resumen">${resumenDoc(tipo, f)}</span>
+       </span>
+       ${avisos ? `<span class="doc-aviso">⚠ ${avisos} aviso(s)</span>` : ''}
+     </div>`).join('') : '<span class="status">nada pendiente de revisar</span>';
+  $('docsStatus').textContent = n ? `${n} documento(s)` : '';
+  $('docsStatus').className = 'status';
+}
+
+async function cargarDocs() {
+  const st = $('docsStatus'); st.textContent = 'consultando…';
   try {
-    await catalogos();
-    const filas = await fetchDetalle('/v_cm_ingesta_pendiente_correspondencia?select=*');
-    const n = filas.length;
-    const b = $('ingcBadge');
-    if (n) { b.textContent = n; b.style.display = 'inline-block'; } else b.style.display = 'none';
-    $('ingcLista').innerHTML = n ? filas.map(tarjetaCorr).join('')
-                                 : '<span class="status">nada pendiente de revisar</span>';
-    st.textContent = n ? `${n} documento(s)` : '';
-    st.className = 'status';
+    await Promise.all([cargarIngesta(), cargarIngestaProp(), cargarIngestaCorr()]);
+    pintarDocs();
   } catch (e) {
     if (e.message !== 'SIN_SESION') { st.textContent = e.message; st.className = 'status error'; }
+    else st.textContent = '';
   }
 }
 
-$('ingcLista').addEventListener('click', async (e) => {
+function abrirRevision(tipo, id) {
+  const f = DOCS[tipo].find(x => String(x.id) === String(id));
+  if (!f) return;
+  $('revTitulo').textContent = `Revisar ${TIPO_DOC_TXT[tipo]} — ${nombreDoc(tipo, f)}`;
+  $('revCuerpo').innerHTML = tipo === 'factura' ? tarjetaFact(f)
+                           : tipo === 'propuesta' ? tarjetaProp(f)
+                           : tarjetaCorr(f);
+  $('revCuerpo').querySelectorAll('.prop-bloque').forEach(recalcularCuadre);
+  $('revVelo').hidden = false;
+}
+
+function cerrarRevision() { $('revVelo').hidden = true; $('revCuerpo').innerHTML = ''; }
+
+$('revCuerpo').addEventListener('click', async (e) => {  // correspondencia (dentro del pop-up)
   const tarjeta = e.target.closest('.corr-tarjeta');
   if (!tarjeta) return;
 
@@ -2158,7 +2200,7 @@ $('ingcLista').addEventListener('click', async (e) => {
       const r = await rpc('cm_confirmar_ingesta_correspondencia',
         { p_ingesta_id: tarjeta.dataset.ing, p_entidad_id: entidad, p_campos: campos });
       alert(r.ok ? `✓ ${r.entidad}: ${r.aplicados} campo(s) actualizados` : `No se pudo: ${r.error}`);
-      cargarIngestaCorr();
+      cerrarRevision(); cargarDocs();
     } catch (err) { alert('Error: ' + err.message); }
     return;
   }
@@ -2167,7 +2209,7 @@ $('ingcLista').addEventListener('click', async (e) => {
     const motivo = prompt('¿Por qué lo descartas? (opcional)') || null;
     try {
       await rpc('cm_descartar_ingesta', { p_ingesta_id: tarjeta.dataset.ing, p_motivo: motivo });
-      cargarIngestaCorr();
+      cerrarRevision(); cargarDocs();
     } catch (err) { alert('Error: ' + err.message); }
   }
 });
@@ -2607,9 +2649,17 @@ document.addEventListener('DOMContentLoaded', () => {
   zona.addEventListener('dragleave', () => zona.classList.remove('arrastre'));
   zona.addEventListener('drop', e => { e.preventDefault(); zona.classList.remove('arrastre'); subirFicheros(e.dataTransfer.files); });
   $('btnVerBandeja').onclick = verBandeja;
-  $('btnIngRefrescar').onclick = cargarIngesta;
-  $('btnIngpRefrescar').onclick = cargarIngestaProp;
-  $('btnIngcRefrescar').onclick = cargarIngestaCorr;
+  $('btnDocsRefrescar').onclick = cargarDocs;
+  // Pop-up de revisión: abrir desde el listado, cerrar con ✕, con el velo o con Escape.
+  $('docsLista').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-rev]');
+    if (!btn) return;
+    const [tipo, id] = btn.dataset.rev.split(':');
+    abrirRevision(tipo, id);
+  });
+  $('revCerrar').onclick = cerrarRevision;
+  $('revVelo').addEventListener('click', (e) => { if (e.target === $('revVelo')) cerrarRevision(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('revVelo').hidden) cerrarRevision(); });
   $('btnInfGenerar').onclick = () => generarInforme(false);
   $('btnInfRefinar').onclick = () => generarInforme(true);
   $('btnInfGuardar').onclick = guardarInformeActual;
