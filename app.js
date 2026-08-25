@@ -1682,18 +1682,32 @@ function exportarInformeExcel() {
 // ============================================================
 // SUBIR DOCUMENTOS (bandeja de entrada → la ingesta del PC la vacía)
 // ============================================================
+// El ÚNICO formato que la ingesta sabe leer es el PDF (decisión de Antonio, 25-08-2026).
+// Se comprueba AQUÍ y no solo en el `accept` del input: ese atributo únicamente filtra el
+// diálogo de Windows, y arrastrando —o eligiendo «todos los archivos»— entra cualquier cosa.
+// Es lo que pasó el 24-08: cuatro correos .msg subieron con un «✓ en bandeja» y se quedaron
+// invisibles para siempre, porque el lector solo abre .pdf y nadie avisaba de lo contrario.
+const esPdf = (f) => /\.pdf$/i.test(f.name);
+
 async function subirFicheros(files) {
   const tipo = $('subTipo').value, lista = $('listaSubidas');
   for (const f of files) {
     const item = document.createElement('div'); item.className = 'item';
     item.innerHTML = `<span>${f.name}</span><span class="status">subiendo…</span>`;
     lista.prepend(item);
+    if (!esPdf(f)) {
+      item.lastElementChild.textContent = '✗ solo se admite PDF — imprime el documento a PDF y vuelve a subirlo';
+      item.lastElementChild.className = 'error';
+      continue;
+    }
     try {
       const tok = await getToken();
       if (!tok) throw new Error('inicia sesión');
       const nombre = f.name.replace(/[^\w.\-() ]/g, '_');
       const r = await fetch(`${URL_SB}/storage/v1/object/${BUCKET_INBOX}/${tipo}/${encodeURIComponent(nombre)}`, {
-        method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${tok}`, 'Content-Type': f.type || 'application/pdf' },
+        // Tipo FIJO, no `f.type`: un .msg no declara ninguno y acababa etiquetado como PDF
+        // en el almacén, así que el fichero mentía sobre lo que era.
+        method: 'POST', headers: { apikey: ANON, Authorization: `Bearer ${tok}`, 'Content-Type': 'application/pdf' },
         body: f
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -1716,7 +1730,14 @@ async function verBandeja() {
         body: JSON.stringify({ prefix: tipo + '/', limit: 100 })
       });
       const objetos = (await r.json()).filter(o => o.name && !o.name.endsWith('/'));
-      if (objetos.length) html += `<div class="sub" style="margin:6px 0"><strong>${tipo}</strong>: ${objetos.map(o=>o.name).join(' · ')}</div>`;
+      // Lo que no es PDF la ingesta NO lo lee, y antes se quedaba aquí sin que nada lo dijera.
+      // Marcarlo es la única señal que ve Antonio de que ese documento no va a procesarse.
+      if (objetos.length) {
+        const partes = objetos.map(o => /\.pdf$/i.test(o.name)
+          ? esc(o.name)
+          : `<span class="error">${esc(o.name)} ⚠ no es PDF: la ingesta no puede leerlo</span>`);
+        html += `<div class="sub" style="margin:6px 0"><strong>${tipo}</strong>: ${partes.join(' · ')}</div>`;
+      }
     }
     $('bandejaLista').innerHTML = html || '<span class="sub">bandeja vacía — todo procesado</span>';
     st.textContent = '';
