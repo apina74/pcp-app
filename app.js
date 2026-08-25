@@ -289,7 +289,7 @@ document.querySelectorAll('.nav-item[data-pantalla]').forEach(t => t.addEventLis
   if (!ses) mostrarLogin();
   if (t.dataset.pantalla === 'proyectos' && ses) cargarProyectos();
   if (t.dataset.pantalla === 'informes' && ses) cargarInformesGuardados();
-  if (t.dataset.pantalla === 'subir' && ses) { cargarIngesta(); cargarIngestaProp(); }
+  if (t.dataset.pantalla === 'subir' && ses) { cargarIngesta(); cargarIngestaProp(); cargarIngestaCorr(); }
 }));
 
 // Menú lateral en móvil (F3): en escritorio el sidebar es fijo y esto no llega a actuar.
@@ -2052,6 +2052,127 @@ $('ingpLista').addEventListener('click', async (e) => {
 });
 
 // ============================================================
+// INGESTA DE CORRESPONDENCIA (25-08-2026)
+// ============================================================
+// Datos complementarios de entidad que llegan DESPUÉS de la aprobación: CIF, dirección
+// fiscal, VAT, email… La función solo propone los campos que DIFIEREN de la ficha; aquí
+// se elige la entidad, se edita lo propuesto y se confirma campo a campo (checkbox).
+// Nada se aplica sin marcar y confirmar — misma filosofía que propuestas: lo que se manda
+// a la RPC es lo que quede en pantalla.
+
+const ETIQUETA_CAMPO = {
+  nif: 'NIF / CIF',
+  vat_number: 'VAT intracomunitario',
+  direccion_fiscal: 'Dirección fiscal',
+  codigo_postal: 'Código postal',
+  ciudad: 'Ciudad',
+  pais: 'País',
+  email_general: 'Email',
+  web: 'Web',
+  idioma_correspondencia: 'Idioma',
+};
+
+function tarjetaCorr(f) {
+  const campos = Object.entries(f.campos || {});
+  const avisos = (f.avisos || []).filter(Boolean);
+  const pills = [
+    `<span class="pill ${f.confianza === 'media' ? 'ok' : 'warn'}">confianza ${esc(f.confianza || '?')}</span>`,
+    `<span class="pill">${esc(f.metodo_extraccion || '')}</span>`,
+  ].join('');
+
+  const filas = campos.map(([campo, det]) => `<tr data-campo="${esc(campo)}">
+    <td><label style="display:flex;gap:6px;align-items:center">
+      <input type="checkbox" class="cc-aplicar" checked> ${esc(ETIQUETA_CAMPO[campo] || campo)}</label></td>
+    <td class="sub">${det.actual != null ? esc(det.actual) : '<em>— vacío —</em>'}</td>
+    <td><input class="cc-valor" value="${esc(det.propuesto || '')}">${det.verificado === false
+      ? '<div class="sub" style="color:var(--ambar)">⚠ no aparece literal en el documento</div>' : ''}</td>
+  </tr>`).join('');
+
+  return `<div class="prop-tarjeta corr-tarjeta" data-ing="${f.id}">
+    <div class="prop-cab">
+      <div><strong>${esc(nombreArchivo(f.archivo))}</strong>
+        <div class="sub">${campos.length
+          ? `${campos.length} campo(s) que completar en la ficha`
+          : esc(f.motivo_duda || 'sin datos nuevos frente a la ficha')}</div>
+      </div>
+      <div class="pills">${pills}</div>
+    </div>
+    ${avisos.map(a => `<div class="prop-aviso">${esc(a)}</div>`).join('')}
+    <div class="prop-campos" style="margin-bottom:8px">
+      <div>
+        <label>Entidad</label>
+        <select class="cc-entidad">
+          <option value="">— elige la entidad —</option>
+          ${optsEntidad(f.entidad_id)}
+        </select>
+        <div class="sub">${f.entidad ? `detectada: ${esc(f.entidad)} (${esc(CONFIANZA_CLI[f.confianza_entidad] || f.confianza_entidad || '—')})` : 'no se ha identificado'}</div>
+      </div>
+    </div>
+    ${campos.length ? `<table class="prop-lineas">
+      <thead><tr><th style="width:30%">Campo</th><th>En la ficha</th><th>Propuesto</th></tr></thead>
+      <tbody>${filas}</tbody>
+    </table>` : ''}
+    ${f.otros ? `<div class="sub" style="margin-top:6px">Otros datos del documento: ${esc(f.otros)}</div>` : ''}
+    <div class="top-row" style="justify-content:flex-end;gap:8px;margin-top:8px">
+      <button class="mini gris cc-descartar">Descartar</button>
+      ${campos.length ? '<button class="mini verde cc-confirmar">Aplicar a la ficha</button>' : ''}
+    </div>
+  </div>`;
+}
+
+async function cargarIngestaCorr() {
+  const st = $('ingcStatus');
+  try {
+    await catalogos();
+    const filas = await fetchDetalle('/v_cm_ingesta_pendiente_correspondencia?select=*');
+    const n = filas.length;
+    const b = $('ingcBadge');
+    if (n) { b.textContent = n; b.style.display = 'inline-block'; } else b.style.display = 'none';
+    $('ingcLista').innerHTML = n ? filas.map(tarjetaCorr).join('')
+                                 : '<span class="status">nada pendiente de revisar</span>';
+    st.textContent = n ? `${n} documento(s)` : '';
+    st.className = 'status';
+  } catch (e) {
+    if (e.message !== 'SIN_SESION') { st.textContent = e.message; st.className = 'status error'; }
+  }
+}
+
+$('ingcLista').addEventListener('click', async (e) => {
+  const tarjeta = e.target.closest('.corr-tarjeta');
+  if (!tarjeta) return;
+
+  if (e.target.matches('.cc-confirmar')) {
+    const entidad = tarjeta.querySelector('.cc-entidad').value;
+    if (!entidad) { alert('Elige la entidad antes de aplicar.'); return; }
+    const campos = {};
+    tarjeta.querySelectorAll('tr[data-campo]').forEach(tr => {
+      if (tr.querySelector('.cc-aplicar').checked) {
+        const v = tr.querySelector('.cc-valor').value.trim();
+        if (v) campos[tr.dataset.campo] = v;
+      }
+    });
+    const n = Object.keys(campos).length;
+    if (!n) { alert('No hay ningún campo marcado con valor.'); return; }
+    if (!confirm(`Se actualizarán ${n} campo(s) de la ficha de la entidad. ¿Seguro?`)) return;
+    try {
+      const r = await rpc('cm_confirmar_ingesta_correspondencia',
+        { p_ingesta_id: tarjeta.dataset.ing, p_entidad_id: entidad, p_campos: campos });
+      alert(r.ok ? `✓ ${r.entidad}: ${r.aplicados} campo(s) actualizados` : `No se pudo: ${r.error}`);
+      cargarIngestaCorr();
+    } catch (err) { alert('Error: ' + err.message); }
+    return;
+  }
+
+  if (e.target.matches('.cc-descartar')) {
+    const motivo = prompt('¿Por qué lo descartas? (opcional)') || null;
+    try {
+      await rpc('cm_descartar_ingesta', { p_ingesta_id: tarjeta.dataset.ing, p_motivo: motivo });
+      cargarIngestaCorr();
+    } catch (err) { alert('Error: ' + err.message); }
+  }
+});
+
+// ============================================================
 // ASISTENTE: chat + informes + voz + Teo
 // ============================================================
 // En SVG, className es de solo lectura: hay que usar setAttribute.
@@ -2488,6 +2609,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('btnVerBandeja').onclick = verBandeja;
   $('btnIngRefrescar').onclick = cargarIngesta;
   $('btnIngpRefrescar').onclick = cargarIngestaProp;
+  $('btnIngcRefrescar').onclick = cargarIngestaCorr;
   $('btnInfGenerar').onclick = () => generarInforme(false);
   $('btnInfRefinar').onclick = () => generarInforme(true);
   $('btnInfGuardar').onclick = guardarInformeActual;
