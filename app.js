@@ -289,7 +289,6 @@ document.querySelectorAll('.nav-item[data-pantalla]').forEach(t => t.addEventLis
   if (!ses) mostrarLogin();
   if (t.dataset.pantalla === 'proyectos' && ses) cargarProyectos();
   if (t.dataset.pantalla === 'informes' && ses) cargarInformesGuardados();
-  if (t.dataset.pantalla === 'subir' && ses) cargarDocs();
 }));
 
 // Menú lateral en móvil (F3): en escritorio el sidebar es fijo y esto no llega a actuar.
@@ -2642,21 +2641,8 @@ document.addEventListener('DOMContentLoaded', () => {
       pintarPropuesta();
     };
   });
-  $('btnElegir').onclick = () => $('inputFicheros').click();
-  $('inputFicheros').addEventListener('change', e => subirFicheros(e.target.files));
-  const zona = $('zonaSubir');
-  zona.addEventListener('dragover', e => { e.preventDefault(); zona.classList.add('arrastre'); });
-  zona.addEventListener('dragleave', () => zona.classList.remove('arrastre'));
-  zona.addEventListener('drop', e => { e.preventDefault(); zona.classList.remove('arrastre'); subirFicheros(e.dataTransfer.files); });
-  $('btnVerBandeja').onclick = verBandeja;
-  $('btnDocsRefrescar').onclick = cargarDocs;
-  // Pop-up de revisión: abrir desde el listado, cerrar con ✕, con el velo o con Escape.
-  $('docsLista').addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-rev]');
-    if (!btn) return;
-    const [tipo, id] = btn.dataset.rev.split(':');
-    abrirRevision(tipo, id);
-  });
+  // La pantalla «Carga documentos» se retiró el 25-09-2026 (ingesta solo desde Claude, skill kira):
+  // sus enganches se quitan con ella, o $() devolvería null y el arranque se pararía aquí.
   $('revCerrar').onclick = cerrarRevision;
   $('revVelo').addEventListener('click', (e) => { if (e.target === $('revVelo')) cerrarRevision(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('revVelo').hidden) cerrarRevision(); });
