@@ -1,6 +1,6 @@
 /* Panel de Control Personal (PCP) v8 — lógica de la app.
    Datos: Supabase (vistas v_cm_* con clave pública; detalle con sesión de Antonio).
-   IA: Edge Function cm-qa (cascada Groq→Mistral→OpenRouter→Gemini→Claude).
+   IA: Edge Function cm-qa (cascada Gemini → Mistral; ver §CASCADA en supabase/functions/cm-qa/index.ts).
    Seguridad: candado de identidad en BD (cm_es_antonio) + desbloqueo del dispositivo (WebAuthn). */
 
 'use strict';
@@ -1474,7 +1474,7 @@ function exportarCsv() {
   }).join(';'));
   const blob = new Blob(['﻿' + [cab, ...lineas].join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob); a.download = `pcp_${sub}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.href = URL.createObjectURL(blob); a.download = `pcp_${sub}_${fechaIso(new Date())}.csv`;
   a.click(); URL.revokeObjectURL(a.href);
 }
 
@@ -1668,14 +1668,14 @@ function exportarInformePdf() {
   const doc = new window.jspdf.jsPDF();
   doc.text($('infTitulo').textContent || 'Informe PCP', 14, 14);
   doc.autoTable({ startY: 20, head: [infCols.map(c => c.t)], body: infFilas.map(r => infCols.map(c => r[c.k] ?? '')) });
-  doc.save(`informe_${new Date().toISOString().slice(0,10)}.pdf`);
+  doc.save(`informe_${fechaIso(new Date())}.pdf`);
 }
 function exportarInformeExcel() {
   if (!infFilas.length) { alert('Ejecuta un informe primero.'); return; }
   const ws = window.XLSX.utils.json_to_sheet(infFilas);
   const wb = window.XLSX.utils.book_new();
   window.XLSX.utils.book_append_sheet(wb, ws, 'Informe');
-  window.XLSX.writeFile(wb, `informe_${new Date().toISOString().slice(0,10)}.xlsx`);
+  window.XLSX.writeFile(wb, `informe_${fechaIso(new Date())}.xlsx`);
 }
 
 // ============================================================
